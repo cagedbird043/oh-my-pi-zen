@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `anysearch` registry provider definition and interactive credentials login support.
+
 ## [16.3.5] - 2026-07-04
 
 ### Added

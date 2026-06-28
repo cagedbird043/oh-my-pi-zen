@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
+
 ## [16.3.5] - 2026-07-04
 
 ### Fixed
