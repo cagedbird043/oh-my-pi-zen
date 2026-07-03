@@ -22,6 +22,9 @@
 ### Added
 
 - Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
+### Fixed
+
+- Fixed `omitThinking` settings propagation so settings-aware streams request hidden thinking summaries when users explicitly enable the option.
 
 ## [16.3.5] - 2026-07-04
 
