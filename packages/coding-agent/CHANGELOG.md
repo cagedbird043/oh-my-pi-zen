@@ -25,6 +25,7 @@
 
 ### Added
 - Added ordered model role chains: comma-separated `modelRoles.<role>` entries now act as provider fallback chains, and the model selector shows/edit them with zero-based badges like `ROLE#0`, `ROLE#1`, etc.
+- Added `statusLine.segmentOptions.model.showProvider` so custom-provider model names can render as `provider/Model Name` in the status line.
 
 - Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
 

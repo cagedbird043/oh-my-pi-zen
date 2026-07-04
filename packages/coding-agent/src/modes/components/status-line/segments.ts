@@ -20,6 +20,13 @@ function withIcon(icon: string, text: string): string {
 	return icon ? `${icon} ${text}` : text;
 }
 
+function modelProviderPrefix(model: SegmentContext["session"]["state"]["model"] | undefined): string {
+	if (!model) return "";
+	if (typeof model.provider === "string" && model.provider.length > 0) return model.provider;
+	if (typeof model.id === "string" && model.id.includes("/")) return model.id.slice(0, model.id.indexOf("/"));
+	return "";
+}
+
 /** Left-truncate a path/label to `maxLen`, prefixing an ellipsis when clipped. */
 function clampPathLength(pwd: string, maxLen: number): string {
 	if (pwd.length <= maxLen) return pwd;
@@ -101,6 +108,10 @@ const modelSegment: StatusLineSegment = {
 		let modelName = state.model?.name || state.model?.id || "no-model";
 		if (modelName.startsWith("Claude ")) {
 			modelName = modelName.slice(7);
+		}
+		if (opts.showProvider === true) {
+			const provider = modelProviderPrefix(state.model);
+			if (provider) modelName = `${provider}/${modelName}`;
 		}
 
 		// Resolve the current thinking-level display ("◉ xhigh", "⟳ auto", …)
