@@ -157,7 +157,7 @@ async function updateNativeSentinel(version: string): Promise<void> {
 	console.log(`  sentinel: ${sentinelName}`);
 }
 
-async function cmdRelease(versionArg: string): Promise<void> {
+async function cmdRelease(versionArg: string, options: { watchCi: boolean }): Promise<void> {
 	const version = versionArg === "next" ? await nextZenVersion() : versionArg;
 	if (!zenVersionPattern.test(version)) throw new Error(`Zen version must look like 16.3.6-zen.1, got ${version}`);
 
@@ -223,9 +223,13 @@ async function cmdRelease(versionArg: string): Promise<void> {
 	await git(["tag", "-f", tagName]);
 	await git(["push", "--atomic", "origin", "refs/heads/zen/main:refs/heads/zen/main", `${sha}:refs/tags/${tagName}`]);
 
-	console.log("Watching CI...");
-	const success = await watchCI();
-	if (!success) process.exit(1);
+	if (options.watchCi) {
+		console.log("Watching CI...");
+		const success = await watchCI();
+		if (!success) process.exit(1);
+	} else {
+		console.log("Skipping CI watch (--no-watch).");
+	}
 	console.log(`=== Released ${tagName} ===`);
 }
 
@@ -234,16 +238,18 @@ async function cmdWatch(): Promise<void> {
 	process.exit(success ? 0 : 1);
 }
 
-const arg = process.argv[2];
+const args = process.argv.slice(2);
+const arg = args[0];
+const watchCi = !args.includes("--no-watch");
 if (!arg) {
 	console.error("Usage:");
-	console.error("  bun scripts/zen/release.ts <version|next>   Full Zen release");
-	console.error("  bun scripts/zen/release.ts watch            Watch CI for current commit");
+	console.error("  bun scripts/zen/release.ts <version|next> [--no-watch]   Full Zen release");
+	console.error("  bun scripts/zen/release.ts watch                         Watch CI for current commit");
 	process.exit(1);
 }
 
 if (arg === "watch") {
 	await cmdWatch();
 } else {
-	await cmdRelease(arg);
+	await cmdRelease(arg, { watchCi });
 }
