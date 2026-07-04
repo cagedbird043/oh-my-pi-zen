@@ -331,19 +331,6 @@ async function publishNativeLeafPackage(tag: string): Promise<void> {
 	await publishGeneratedLeafPackage(leaf);
 }
 
-async function publishNativePackage(pkg: PublishPackage): Promise<void> {
-	const pkgDir = path.join(repoRoot, pkg.dir);
-	const manifest = await prepareNativeCorePackage(pkgDir, !isDryRun);
-	const name = manifest.name ?? path.basename(pkg.dir);
-	if (isDryRun) {
-		console.log(`DRY RUN native core manifest rewrite (${pkg.dir})`);
-		console.log(
-			JSON.stringify({ optionalDependencies: manifest.optionalDependencies, files: manifest.files }, null, "\t"),
-		);
-	}
-	await packAndPublish(pkgDir, name);
-}
-
 async function preparePublishPackage(pkg: PublishPackage): Promise<PreparedPackage | null> {
 	if (pkg.kind === "native") {
 		const pkgDir = path.join(repoRoot, pkg.dir);
@@ -387,21 +374,6 @@ async function publishPreparedPackages(): Promise<void> {
 			}
 		}
 	}
-}
-
-async function publishPackage(pkg: PublishPackage): Promise<void> {
-	if (pkg.kind === "native") {
-		await publishNativePackage(pkg);
-		return;
-	}
-	const pkgDir = path.join(repoRoot, pkg.dir);
-	const manifest = await preparePackage(pkg);
-	const name = manifest.name ?? path.basename(pkg.dir);
-	if (manifest.private) {
-		console.log(`Skipping ${name} (private)`);
-		return;
-	}
-	await packAndPublish(pkgDir, name);
 }
 
 if (import.meta.main) {
