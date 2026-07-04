@@ -31,6 +31,8 @@ The most capable agent surface that ships. Continuously tuned by real-world use 
 > required a vouch before accepting PRs; that requirement is lifted for now
 > while we evaluate how open contributions go. Depending on the results, the
 > vouch system may return.
+>
+> Downstream note: this fork carries Oh My Pi Zen patches on `zen/main`. See `downstream/README.md` for branch taxonomy, dogfood install, and release policy.
 
 ## Install
 
