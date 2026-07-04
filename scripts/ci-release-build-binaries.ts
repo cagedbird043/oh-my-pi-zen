@@ -27,41 +27,42 @@ const transformersVersion = transformersManifest.version;
 // virtual namespace (`legacy-pi-compat.ts`), reached via the main module
 // graph, so no extra `--compile` entrypoints are required (issue #3423).
 const isDryRun = process.argv.includes("--dry-run");
+const binaryBasename = Bun.env.PI_BINARY_BASENAME ?? "omp";
 const targets: BinaryTarget[] = [
 	{
 		id: "darwin-arm64",
 		platform: "darwin",
 		arch: "arm64",
 		target: "bun-darwin-arm64",
-		outfile: "packages/coding-agent/binaries/omp-darwin-arm64",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-darwin-arm64`,
 	},
 	{
 		id: "darwin-x64",
 		platform: "darwin",
 		arch: "x64",
 		target: "bun-darwin-x64",
-		outfile: "packages/coding-agent/binaries/omp-darwin-x64",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-darwin-x64`,
 	},
 	{
 		id: "linux-x64",
 		platform: "linux",
 		arch: "x64",
 		target: "bun-linux-x64-baseline",
-		outfile: "packages/coding-agent/binaries/omp-linux-x64",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-linux-x64`,
 	},
 	{
 		id: "linux-arm64",
 		platform: "linux",
 		arch: "arm64",
 		target: "bun-linux-arm64",
-		outfile: "packages/coding-agent/binaries/omp-linux-arm64",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-linux-arm64`,
 	},
 	{
 		id: "win32-x64",
 		platform: "win32",
 		arch: "x64",
 		target: "bun-windows-x64-modern",
-		outfile: "packages/coding-agent/binaries/omp-windows-x64.exe",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-windows-x64.exe`,
 	},
 ];
 
@@ -114,6 +115,17 @@ async function embedNative(target: BinaryTarget): Promise<void> {
 	});
 }
 
+function buildEnvDefines(): string[] {
+	const defineEnvVars = ["PI_UPDATE_REPO", "PI_UPDATE_PACKAGE", "PI_UPDATE_HOMEBREW_FORMULA", "PI_UPDATE_MISE_TOOL"];
+	const args: string[] = [];
+	for (const name of defineEnvVars) {
+		const value = Bun.env[name];
+		if (value === undefined) continue;
+		args.push("--define", `process.env.${name}=${JSON.stringify(value)}`);
+	}
+	return args;
+}
+
 function buildCompileCommand(target: BinaryTarget): string[] {
 	return [
 		"bun",
@@ -129,6 +141,7 @@ function buildCompileCommand(target: BinaryTarget): string[] {
 		'process.env.PI_COMPILED="true"',
 		"--define",
 		`process.env.PI_TINY_TRANSFORMERS_VERSION=${JSON.stringify(transformersVersion)}`,
+		...buildEnvDefines(),
 		"--root",
 		".",
 		"--target",
