@@ -537,6 +537,29 @@ describe("ModelSelector role badge thinking display", () => {
 		expect(rendered).toContain("DEFAULT#2");
 	});
 
+	test("hides add-fallback action when selected model is already in that role chain", async () => {
+		installTestTheme();
+		const firstModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const secondModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!firstModel || !secondModel) {
+			throw new Error("Expected bundled models anthropic/claude-sonnet-4-5 and openai/gpt-4o-mini");
+		}
+
+		const settings = Settings.isolated({
+			modelRoles: {
+				default: `${firstModel.provider}/${firstModel.id},${secondModel.provider}/${secondModel.id}`,
+			},
+		});
+
+		const selector = createScopedSelector([firstModel, secondModel], settings, () => {});
+		installTestTheme();
+
+		selector.handleInput("\n");
+		const menuRendered = normalizeRenderedText(selector.render(220).join("\n"));
+		expect(menuRendered).toContain("Set as DEFAULT (Default) primary");
+		expect(menuRendered).not.toContain("Add DEFAULT (Default) fallback");
+	});
+
 	test("handles add-fallback callback action and notifies the handler", async () => {
 		installTestTheme();
 		const firstModel = getBundledModel("anthropic", "claude-sonnet-4-5");

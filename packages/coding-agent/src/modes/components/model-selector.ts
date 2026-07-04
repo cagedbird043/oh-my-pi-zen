@@ -306,6 +306,13 @@ export class ModelSelectorComponent extends Container {
 		});
 	}
 
+	#getMenuRoleActionsForModel(model: Model): MenuRoleAction[] {
+		return this.#menuRoleActions.filter(action => {
+			if (action.action !== "fallback") return true;
+			return !(this.#roleChains[action.role] ?? []).some(assigned => modelsAreEqual(assigned.model, model));
+		});
+	}
+
 	#loadRoleModels(autoCandidateModels?: ReadonlyArray<Model>): void {
 		const nextRoles = {} as Record<string, RoleAssignment | undefined>;
 		const nextRoleChains = {} as Record<string, RoleAssignment[]>;
@@ -1030,7 +1037,7 @@ export class ModelSelectorComponent extends Container {
 					const label = getConfiguredThinkingLevelMetadata(thinkingLevel).label;
 					return `${prefix}${label}`;
 				})
-			: this.#menuRoleActions.map((action, index) => {
+			: this.#getMenuRoleActionsForModel(selectedItem.model).map((action, index) => {
 					const prefix = index === this.#menuSelectedIndex ? `  ${theme.nav.cursor} ` : "    ";
 					return `${prefix}${action.label}`;
 				});
@@ -1217,10 +1224,11 @@ export class ModelSelectorComponent extends Container {
 		const selectedItem = this.#getSelectedItem();
 		if (!selectedItem || this.#isItemDisabled(selectedItem)) return;
 
+		const roleActions = this.#getMenuRoleActionsForModel(selectedItem.model);
 		const optionCount =
 			this.#menuStep === "thinking" && this.#menuSelectedRole !== null
 				? this.#getThinkingLevelsForModel(selectedItem.model).length
-				: this.#menuRoleActions.length;
+				: roleActions.length;
 		if (optionCount === 0) return;
 
 		if (matchesSelectUp(keyData)) {
@@ -1235,7 +1243,7 @@ export class ModelSelectorComponent extends Container {
 
 		if (matchesKey(keyData, "enter") || matchesKey(keyData, "return") || keyData === "\n") {
 			if (this.#menuStep === "role") {
-				const action = this.#menuRoleActions[this.#menuSelectedIndex];
+				const action = roleActions[this.#menuSelectedIndex];
 				if (!action) return;
 				this.#menuSelectedRole = action.role;
 				this.#menuSelectedRoleAction = action.action;
@@ -1257,7 +1265,9 @@ export class ModelSelectorComponent extends Container {
 		if (getKeybindings().matches(keyData, "tui.select.cancel")) {
 			if (this.#menuStep === "thinking" && this.#menuSelectedRole !== null) {
 				this.#menuStep = "role";
-				const roleIndex = this.#menuRoleActions.findIndex(action => action.role === this.#menuSelectedRole);
+				const roleIndex = roleActions.findIndex(
+					action => action.role === this.#menuSelectedRole && action.action === this.#menuSelectedRoleAction,
+				);
 				this.#menuSelectedRoleAction = "primary";
 				this.#menuSelectedIndex = roleIndex >= 0 ? roleIndex : 0;
 				this.#updateMenu();
