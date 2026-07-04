@@ -1831,6 +1831,79 @@ describe("AgentSession retry fallback", () => {
 		]);
 	});
 
+	it("falls back immediately on subscription quota insufficient 403 errors", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!primaryModel || !fallbackModel) {
+			throw new Error("Expected bundled test models to exist");
+		}
+
+		const requestedModels: string[] = [];
+		const fallbackAppliedEvents: Array<Extract<AgentSessionEvent, { type: "retry_fallback_applied" }>> = [];
+		const mock = createMockModel();
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: {
+				model: primaryModel,
+				systemPrompt: ["Test"],
+				tools: [],
+				messages: [],
+			},
+			streamFn: (model, context, options) => {
+				requestedModels.push(`${model.provider}/${model.id}`);
+				if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+					mock.push({ throw: "403 订阅额度不足或未配置订阅: subscription quota insufficient, need=14447" });
+				} else if (model.provider === fallbackModel.provider && model.id === fallbackModel.id) {
+					mock.push({ content: ["Recovered after quota fallback"] });
+				} else {
+					throw new Error(`Unexpected model requested: ${model.provider}/${model.id}`);
+				}
+				return mock.stream(model, context, options);
+			},
+		});
+
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+		});
+		settings.setModelRole(
+			"default",
+			`${primaryModel.provider}/${primaryModel.id},${fallbackModel.provider}/${fallbackModel.id}`,
+		);
+
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+		});
+		session.subscribe(event => {
+			if (event.type === "retry_fallback_applied") {
+				fallbackAppliedEvents.push(event);
+			}
+		});
+
+		await session.prompt("Recover from subscription quota");
+		await session.waitForIdle();
+
+		expect(requestedModels).toEqual([
+			`${primaryModel.provider}/${primaryModel.id}`,
+			`${fallbackModel.provider}/${fallbackModel.id}`,
+		]);
+		expect(fallbackAppliedEvents).toEqual([
+			{
+				type: "retry_fallback_applied",
+				from: `${primaryModel.provider}/${primaryModel.id}`,
+				to: `${fallbackModel.provider}/${fallbackModel.id}`,
+				role: "default",
+			},
+		]);
+		expect(getLastAssistantMessage(session).content[0]).toEqual({
+			type: "text",
+			text: "Recovered after quota fallback",
+		});
+	});
+
 	it("advances through a non-default role comma-chain (such as task)", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		const firstFallback = getBundledModel("openai", "gpt-4o-mini");
