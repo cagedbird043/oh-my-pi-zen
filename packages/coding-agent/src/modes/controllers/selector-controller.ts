@@ -638,6 +638,7 @@ export class SelectorController {
 									selector,
 									thinkingLevel: concreteThinking,
 									persist: true,
+									preserveRoleChain: true,
 									currentContextTokens,
 								});
 								if (isAuto) {

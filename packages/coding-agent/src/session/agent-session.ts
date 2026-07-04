@@ -8670,6 +8670,7 @@ export class AgentSession {
 			selector?: string;
 			thinkingLevel?: ThinkingLevel;
 			persist?: boolean;
+			preserveRoleChain?: boolean;
 			currentContextTokens?: number;
 		},
 	): Promise<{ switched: boolean }> {
@@ -8684,9 +8685,12 @@ export class AgentSession {
 		this.#setModelWithProviderSessionReset(targetModel);
 		this.sessionManager.appendModelChange(`${targetModel.provider}/${targetModel.id}`, role);
 		if (options?.persist) {
+			const roleValue = this.#formatRoleModelValue(role, targetModel, options.selector, options.thinkingLevel);
 			this.settings.setModelRole(
 				role,
-				this.#formatRoleModelValue(role, targetModel, options.selector, options.thinkingLevel),
+				options.preserveRoleChain
+					? setModelRoleChainPrimary(this.settings.getModelRole(role), roleValue)
+					: roleValue,
 			);
 		}
 		this.settings.getStorage()?.recordModelUsage(`${targetModel.provider}/${targetModel.id}`);
@@ -11606,7 +11610,7 @@ export class AgentSession {
 		} else {
 			primaryValue = modelKey;
 		}
-		return setModelRoleChainPrimary(existingRoleValue, primaryValue);
+		return primaryValue;
 	}
 	#resolveConfiguredModelTarget(
 		configuredTarget: string | undefined,
@@ -13026,7 +13030,7 @@ export class AgentSession {
 		const defaultChain = chains.default;
 		if (Array.isArray(defaultChain)) {
 			for (const role of Object.keys(this.settings.getModelRoles())) {
-				if (role !== "default" && chains[role] === undefined) {
+				if (role !== "default" && chains[role]?.length === 0) {
 					chains[role] = defaultChain;
 				}
 			}
