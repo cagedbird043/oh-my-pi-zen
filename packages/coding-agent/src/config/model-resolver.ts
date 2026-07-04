@@ -862,10 +862,32 @@ function getModelRoleAlias(value: string): ModelRole | undefined {
 	return undefined;
 }
 
-function normalizeModelPatternList(value: string | string[] | undefined): string[] {
+export function normalizeModelPatternList(value: string | string[] | undefined): string[] {
 	if (!value) return [];
 	const patterns = Array.isArray(value) ? value.flatMap(pattern => pattern.split(",")) : value.split(",");
 	return patterns.map(pattern => pattern.trim()).filter(Boolean);
+}
+
+export function setModelRoleChainPrimary(currentValue: string | undefined, primaryValue: string): string {
+	const primary = primaryValue.trim();
+	if (!primary) return normalizeModelPatternList(currentValue).join(", ");
+	const tail = normalizeModelPatternList(currentValue).filter(pattern => pattern !== primary);
+	return [primary, ...tail].join(", ");
+}
+
+export function appendModelRoleChainFallback(currentValue: string | undefined, fallbackValue: string): string {
+	const fallback = fallbackValue.trim();
+	const chain = normalizeModelPatternList(currentValue);
+	if (!fallback) return chain.join(", ");
+	if (!chain.includes(fallback)) chain.push(fallback);
+	return chain.join(", ");
+}
+
+export function removeModelRoleChainEntry(currentValue: string | undefined, entryValue: string): string {
+	const entry = entryValue.trim();
+	return normalizeModelPatternList(currentValue)
+		.filter(pattern => pattern !== entry)
+		.join(", ");
 }
 
 function isSessionInheritedAgentPattern(value: string): boolean {
