@@ -23,6 +23,17 @@ This repo contains multiple packages, but **`packages/coding-agent/`** is the pr
 
 **Catalog import convention**: code in this repo imports catalog _values_ (bundled models, model-thinking helpers, identity, descriptors, model manager/cache) from `@oh-my-pi/pi-catalog/<module>` — never via `@oh-my-pi/pi-ai`. The pi-ai barrel re-exports only the model/effort _types_ its own signatures use (`Model`, `Api`, `ThinkingConfig`, `Effort`, …); type-only imports of those from `@oh-my-pi/pi-ai` are fine.
 
+## Zen Downstream Rules
+
+This checkout is maintained as **Oh My Pi Zen** on `zen/main`, but source packages intentionally keep upstream `@oh-my-pi/*` names.
+
+- **Source identity**: Keep workspace package names, internal imports, and source dependency specifiers as `@oh-my-pi/*`. Do not rename source packages to `@oh-my-pi-zen/*` during normal development.
+- **Publish identity**: Zen package names, repository URLs, and binary names are applied only in publish/install worktrees through `scripts/zen/package-map.ts` and `scripts/zen/prepare-publish-worktree.ts`.
+- **Reason**: Keeping source identity upstream-compatible keeps rebases, cherry-picks, and `upstream-pr/*` branches small. Zen identity belongs to release artifacts, not the editable source tree.
+- **Branch taxonomy**: `zen/main` is the integrated downstream branch; `upstream-pr/*` is for general fixes intended for upstream; short-lived feature branches are for Zen experiments and dogfooding before integration.
+- **Mainline discipline**: Do not experiment directly on `zen/main`. Build and dogfood new Zen features on a feature branch, then squash-merge one coherent commit to `zen/main` after verification. This keeps CI usage low, avoids repeated mainline force-pushes, and keeps downstream history reviewable.
+- **Commit hygiene**: Keep `zen/main` history PR-like. Squash dogfood fixes into coherent topic commits before integration. Do not leave temporary fixup commits in the long-lived patch stack.
+
 ## GitHub
 
 Unless user tells you exactly what to write:
