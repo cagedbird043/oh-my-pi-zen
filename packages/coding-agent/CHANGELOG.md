@@ -22,6 +22,7 @@
 - Fixed `omitThinking` settings propagation so settings-aware streams request hidden thinking summaries when users explicitly enable the option.
 
 ### Added
+- Added ordered model role chains: comma-separated `modelRoles.<role>` entries now act as provider fallback chains, and the model selector shows/edit them with `ROLE#1`, `ROLE#2`, etc.
 
 - Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
 
