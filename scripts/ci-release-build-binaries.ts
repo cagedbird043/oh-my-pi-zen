@@ -30,41 +30,42 @@ const transformersVersion = transformersManifest.version;
 // modules are supplied by the in-memory compile plugin, so neither subsystem
 // needs extra `--compile` entrypoints.
 const isDryRun = process.argv.includes("--dry-run");
+const binaryBasename = Bun.env.PI_BINARY_BASENAME ?? "omp";
 const targets: BinaryTarget[] = [
 	{
 		id: "darwin-arm64",
 		platform: "darwin",
 		arch: "arm64",
 		target: "bun-darwin-arm64",
-		outfile: "packages/coding-agent/binaries/omp-darwin-arm64",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-darwin-arm64`,
 	},
 	{
 		id: "darwin-x64",
 		platform: "darwin",
 		arch: "x64",
 		target: "bun-darwin-x64",
-		outfile: "packages/coding-agent/binaries/omp-darwin-x64",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-darwin-x64`,
 	},
 	{
 		id: "linux-x64",
 		platform: "linux",
 		arch: "x64",
 		target: "bun-linux-x64-baseline",
-		outfile: "packages/coding-agent/binaries/omp-linux-x64",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-linux-x64`,
 	},
 	{
 		id: "linux-arm64",
 		platform: "linux",
 		arch: "arm64",
 		target: "bun-linux-arm64",
-		outfile: "packages/coding-agent/binaries/omp-linux-arm64",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-linux-arm64`,
 	},
 	{
 		id: "win32-x64",
 		platform: "win32",
 		arch: "x64",
 		target: "bun-windows-x64-modern",
-		outfile: "packages/coding-agent/binaries/omp-windows-x64.exe",
+		outfile: `packages/coding-agent/binaries/${binaryBasename}-windows-x64.exe`,
 	},
 ];
 
@@ -89,6 +90,15 @@ function parseRequestedTargets(): Set<string> | null {
 
 function shouldAdhocSignDarwinBinary(target: BinaryTarget): boolean {
 	return target.platform === "darwin" && process.platform === "darwin";
+}
+
+function buildEnvDefines(): Record<string, string> {
+	const defines: Record<string, string> = {};
+	for (const name of ["PI_UPDATE_REPO", "PI_UPDATE_PACKAGE", "PI_UPDATE_HOMEBREW_FORMULA", "PI_UPDATE_MISE_TOOL"]) {
+		const value = Bun.env[name];
+		if (value !== undefined) defines[`process.env.${name}`] = JSON.stringify(value);
+	}
+	return defines;
 }
 
 async function runCommand(command: string[], cwd: string, env: NodeJS.ProcessEnv = Bun.env): Promise<void> {
@@ -132,6 +142,7 @@ async function buildBinary(target: BinaryTarget): Promise<void> {
 		transformersVersion,
 		target: target.target,
 		minifyIdentifiers: true,
+		defines: buildEnvDefines(),
 		skipBuiltinCodesign: shouldAdhocSignDarwinBinary(target),
 	});
 	// Bun 1.3.12 emits a truncated Mach-O signature on darwin builds.

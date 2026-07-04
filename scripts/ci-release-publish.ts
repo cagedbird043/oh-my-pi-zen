@@ -42,6 +42,8 @@ export interface PublishPackage {
 	kind: "typescript" | "native";
 	/** Extra build steps before manifest rewrite (e.g. esbuild bundles). */
 	preBuild?: readonly (readonly string[])[];
+	/** Extra cleanup steps after pack/publish (e.g. generated source reset). */
+	postPack?: readonly (readonly string[])[];
 	/** Extra entries to splice into `files`. */
 	extraFiles?: readonly string[];
 	/** Extra tsgo invocations beyond `tsconfig.publish.json`. */
@@ -69,6 +71,36 @@ interface PackageManifest {
 
 const repoRoot = path.join(import.meta.dir, "..");
 const isDryRun = process.argv.includes("--dry-run");
+
+const codingAgentPublishBin =
+	Bun.env.PI_CODING_AGENT_PUBLISH_BIN === "zen"
+		? { omp: "dist/cli.js", "omp-zen": "dist/cli.js" }
+		: { omp: "dist/cli.js" };
+const nativePackageScope = Bun.env.PI_NPM_PACKAGE_SCOPE ?? "@oh-my-pi";
+const npmDistTag = Bun.env.PI_NPM_DIST_TAG;
+const ignorePackScripts = Bun.env.PI_PACK_IGNORE_SCRIPTS === "true";
+
+function supportedNativeLeafTags(): readonly string[] | null {
+	const value = Bun.env.PI_NPM_NATIVE_LEAF_TAGS;
+	if (!value) return null;
+	return value
+		.split(",")
+		.map(tag => tag.trim())
+		.filter(Boolean);
+}
+
+const nativeLeafTags = supportedNativeLeafTags();
+interface PreparedPackage {
+	dir: string;
+	name: string;
+	private?: boolean;
+	postPack?: readonly (readonly string[])[];
+}
+
+const rewriteBeforePackCommand =
+	Bun.env.PI_ZEN_REWRITE_BEFORE_PACK === "true"
+		? ["bun", "scripts/zen/prepare-publish-worktree.ts", ...(isDryRun ? ["--dry-run"] : [])]
+		: null;
 
 function nativeLeafTagFromArgs(argv: readonly string[]): string | null {
 	for (let i = 0; i < argv.length; i++) {
@@ -102,7 +134,13 @@ export const packages: PublishPackage[] = [
 		extraTypeConfigs: ["tsconfig.publish.client.json"],
 	},
 	{ dir: "packages/agent", kind: "typescript" },
-	{ dir: "packages/coding-agent", kind: "typescript", publishBin: { omp: "dist/cli.js" } },
+	{
+		dir: "packages/coding-agent",
+		kind: "typescript",
+		preBuild: ignorePackScripts ? [["bun", "run", "prepack"]] : undefined,
+		postPack: ignorePackScripts ? [["bun", "run", "postpack"]] : undefined,
+		publishBin: codingAgentPublishBin,
+	},
 ];
 
 function rewriteSrcPath(value: string): string {
@@ -188,7 +226,8 @@ export async function applyPublishBin(pkgRelDir: string, write: boolean): Promis
 function buildNativeOptionalDependencies(version: string): JsonObject {
 	const optionalDependencies: JsonObject = {};
 	for (const target of LEAF_TARGETS) {
-		optionalDependencies[`@oh-my-pi/pi-natives-${target.tag}`] = version;
+		if (nativeLeafTags && !nativeLeafTags.includes(target.tag)) continue;
+		optionalDependencies[`${nativePackageScope}/pi-natives-${target.tag}`] = version;
 	}
 	return optionalDependencies;
 }
@@ -229,13 +268,16 @@ export async function prepareNativeCorePackage(pkgDir: string, write: boolean): 
  */
 async function packAndPublish(dir: string, name: string): Promise<void> {
 	if (isDryRun) {
-		console.log(`DRY RUN bun pm pack && npm publish --access public (${path.relative(repoRoot, dir)})`);
+		const tagSuffix = npmDistTag ? ` --tag ${npmDistTag}` : "";
+		console.log(`DRY RUN bun pm pack && npm publish --access public${tagSuffix} (${path.relative(repoRoot, dir)})`);
 		return;
 	}
 	console.log(`Publishing ${name}…`);
 	const packDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-pack-"));
 	try {
-		const packed = await $`bun pm pack --quiet --destination ${packDir}`.cwd(dir).quiet().nothrow();
+		const packed = ignorePackScripts
+			? await $`bun pm pack --quiet --ignore-scripts --destination ${packDir}`.cwd(dir).quiet().nothrow()
+			: await $`bun pm pack --quiet --destination ${packDir}`.cwd(dir).quiet().nothrow();
 		const packOutput = `${packed.stdout.toString()}${packed.stderr.toString()}`.trim();
 		if (packed.exitCode !== 0) {
 			if (packOutput) console.log(packOutput);
@@ -243,7 +285,9 @@ async function packAndPublish(dir: string, name: string): Promise<void> {
 		}
 		const tarball = (await fs.readdir(packDir)).find(entry => entry.endsWith(".tgz"));
 		if (!tarball) throw new Error(`bun pm pack produced no tarball for ${name} (${path.relative(repoRoot, dir)})`);
-		const result = await $`npm publish ${path.join(packDir, tarball)} --access public`.quiet().nothrow();
+		const result = npmDistTag
+			? await $`npm publish ${path.join(packDir, tarball)} --access public --tag ${npmDistTag}`.quiet().nothrow()
+			: await $`npm publish ${path.join(packDir, tarball)} --access public`.quiet().nothrow();
 		const output = `${result.stdout.toString()}${result.stderr.toString()}`.trim();
 		if (output) console.log(output);
 		if (result.exitCode !== 0) {
@@ -300,6 +344,51 @@ async function publishNativePackage(pkg: PublishPackage): Promise<void> {
 	await packAndPublish(pkgDir, name);
 }
 
+async function preparePublishPackage(pkg: PublishPackage): Promise<PreparedPackage | null> {
+	if (pkg.kind === "native") {
+		const pkgDir = path.join(repoRoot, pkg.dir);
+		const manifest = await prepareNativeCorePackage(pkgDir, !isDryRun);
+		return {
+			dir: pkg.dir,
+			name: manifest.name ?? path.basename(pkg.dir),
+			private: manifest.private,
+			postPack: pkg.postPack,
+		};
+	}
+	const manifest = await preparePackage(pkg);
+	return {
+		dir: pkg.dir,
+		name: manifest.name ?? path.basename(pkg.dir),
+		private: manifest.private,
+		postPack: pkg.postPack,
+	};
+}
+
+async function publishPreparedPackages(): Promise<void> {
+	const prepared: PreparedPackage[] = [];
+	for (const pkg of packages) {
+		const preparedPackage = await preparePublishPackage(pkg);
+		if (!preparedPackage) continue;
+		prepared.push(preparedPackage);
+	}
+	if (rewriteBeforePackCommand) {
+		await $`${rewriteBeforePackCommand}`.cwd(repoRoot);
+	}
+	for (const pkg of prepared) {
+		if (pkg.private) {
+			console.log(`Skipping ${pkg.name} (private)`);
+			continue;
+		}
+		try {
+			await packAndPublish(path.join(repoRoot, pkg.dir), pkg.name);
+		} finally {
+			for (const argv of pkg.postPack ?? []) {
+				await $`${argv}`.cwd(path.join(repoRoot, pkg.dir));
+			}
+		}
+	}
+}
+
 async function publishPackage(pkg: PublishPackage): Promise<void> {
 	if (pkg.kind === "native") {
 		await publishNativePackage(pkg);
@@ -319,8 +408,6 @@ if (import.meta.main) {
 	if (nativeLeafTag) {
 		await publishNativeLeafPackage(nativeLeafTag);
 	} else {
-		for (const pkg of packages) {
-			await publishPackage(pkg);
-		}
+		await publishPreparedPackages();
 	}
 }
