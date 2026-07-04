@@ -26,6 +26,8 @@ The most capable agent surface that ships. Continuously tuned by real-world use 
 
 **40+** providers · **32** built-in tools · **14** lsp ops · **28** dap ops · **~55k** lines of Rust core.
 
+> Downstream note: this fork carries Oh My Pi Zen patches on `zen/main`. See `downstream/README.md` for branch taxonomy, dogfood install, and release policy.
+
 ## Install
 
 **macOS · Linux**
