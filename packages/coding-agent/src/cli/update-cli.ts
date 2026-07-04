@@ -14,10 +14,17 @@ import chalk from "chalk";
 import { theme } from "../modes/theme/theme";
 import { isTimeoutError, withTimeoutSignal } from "../utils/fetch-timeout";
 
-const REPO = "can1357/oh-my-pi";
-const PACKAGE = "@oh-my-pi/pi-coding-agent";
-const HOMEBREW_FORMULA = "can1357/tap/omp";
-const MISE_TOOL = "github:can1357/oh-my-pi";
+const IS_COMPILED_BINARY = process.env.PI_COMPILED === "true";
+const REPO = IS_COMPILED_BINARY ? (process.env.PI_UPDATE_REPO ?? "can1357/oh-my-pi") : "can1357/oh-my-pi";
+const PACKAGE = IS_COMPILED_BINARY
+	? (process.env.PI_UPDATE_PACKAGE ?? "@oh-my-pi/pi-coding-agent")
+	: "@oh-my-pi/pi-coding-agent";
+const HOMEBREW_FORMULA = IS_COMPILED_BINARY
+	? (process.env.PI_UPDATE_HOMEBREW_FORMULA ?? "can1357/tap/omp")
+	: "can1357/tap/omp";
+const MISE_TOOL = IS_COMPILED_BINARY
+	? (process.env.PI_UPDATE_MISE_TOOL ?? "github:can1357/oh-my-pi")
+	: "github:can1357/oh-my-pi";
 /**
  * Official npm registry origin.
  *
@@ -40,6 +47,9 @@ const BINARY_DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
  * explicitly rather than inherited as a transitive dependency.
  */
 const NATIVES_PACKAGE = "@oh-my-pi/pi-natives";
+const isZenDistribution = PACKAGE.startsWith("@oh-my-pi-zen/");
+const RELEASE_TAG_PREFIX = isZenDistribution ? "zen/v" : "v";
+const RELEASE_BINARY_BASENAME = isZenDistribution ? "omp-zen" : APP_NAME;
 
 /**
  * Platform tags the release pipeline publishes as
@@ -284,30 +294,12 @@ async function getLatestRelease(): Promise<ReleaseInfo> {
 
 	const data = (await response.json()) as { version: string };
 	const version = data.version;
-	const tag = `v${version}`;
+	const tag = `${RELEASE_TAG_PREFIX}${version}`;
 
 	return {
 		tag,
 		version,
 	};
-}
-
-/**
- * Compare semver versions. Returns:
- * - negative if a < b
- * - 0 if a == b
- * - positive if a > b
- */
-function compareVersions(a: string, b: string): number {
-	const pa = a.split(".").map(Number);
-	const pb = b.split(".").map(Number);
-
-	for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-		const na = pa[i] || 0;
-		const nb = pb[i] || 0;
-		if (na !== nb) return na - nb;
-	}
-	return 0;
 }
 
 interface BunInstallCachePruneResult {
@@ -591,9 +583,9 @@ function getBinaryName(): string {
 	}
 
 	if (os === "windows") {
-		return `${APP_NAME}-${os}-${archName}.exe`;
+		return `${RELEASE_BINARY_BASENAME}-${os}-${archName}.exe`;
 	}
-	return `${APP_NAME}-${os}-${archName}`;
+	return `${RELEASE_BINARY_BASENAME}-${os}-${archName}`;
 }
 
 /**
@@ -613,8 +605,8 @@ async function verifyInstalledVersion(expectedVersion: string): Promise<Installe
 		const result = await $`${ompPath} --version`.quiet().nothrow();
 		if (result.exitCode !== 0) return { ok: false, path: ompPath };
 		const output = result.text().trim();
-		// Output format: "omp/X.Y.Z"
-		const match = output.match(/\/(\d+\.\d+\.\d+)/);
+		// Output format: "omp/X.Y.Z" or "omp/X.Y.Z-prerelease.N"
+		const match = output.match(/\/(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)/);
 		const actual = match?.[1];
 		return { ok: actual === expectedVersion, actual, path: ompPath };
 	} catch {
@@ -884,7 +876,7 @@ async function updateViaMise(expectedVersion: string, force: boolean): Promise<v
  */
 async function updateViaBinaryAt(targetPath: string, expectedVersion: string): Promise<void> {
 	const binaryName = getBinaryName();
-	const tag = `v${expectedVersion}`;
+	const tag = `${RELEASE_TAG_PREFIX}${expectedVersion}`;
 	const url = `https://github.com/${REPO}/releases/download/${tag}/${binaryName}`;
 
 	const tempPath = `${targetPath}.new`;
@@ -942,7 +934,7 @@ export async function runUpdateCommand(opts: { force: boolean; check: boolean })
 		process.exit(1);
 	}
 
-	const comparison = compareVersions(release.version, VERSION);
+	const comparison = compareSemverLikeVersions(release.version, VERSION);
 
 	if (comparison <= 0 && !opts.force) {
 		console.log(chalk.green(`${theme.status.success} Already up to date`));
