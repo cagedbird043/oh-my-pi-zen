@@ -872,9 +872,7 @@ export class ModelSelectorComponent extends Container {
 				const baseLabel = roleInfo.tag ?? roleInfo.name;
 				if (!baseLabel) return;
 				const label =
-					assigned.autoSelected || assigned.chainLength <= 1
-						? baseLabel
-						: `${baseLabel}#${assigned.chainIndex + 1}`;
+					assigned.autoSelected || assigned.chainLength <= 1 ? baseLabel : `${baseLabel}#${assigned.chainIndex}`;
 				const color = assigned.chainIndex === 0 ? (roleInfo.color ?? "success") : "muted";
 				roleBadgeTokens.push(makeRoleBadgeToken(label, color, assigned));
 			};

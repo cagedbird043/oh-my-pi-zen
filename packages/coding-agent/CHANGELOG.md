@@ -24,7 +24,7 @@
 - Fixed the model selector offering `Add ROLE fallback` for a model that is already present in that role's ordered fallback chain.
 
 ### Added
-- Added ordered model role chains: comma-separated `modelRoles.<role>` entries now act as provider fallback chains, and the model selector shows/edit them with `ROLE#1`, `ROLE#2`, etc.
+- Added ordered model role chains: comma-separated `modelRoles.<role>` entries now act as provider fallback chains, and the model selector shows/edit them with zero-based badges like `ROLE#0`, `ROLE#1`, etc.
 
 - Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
 

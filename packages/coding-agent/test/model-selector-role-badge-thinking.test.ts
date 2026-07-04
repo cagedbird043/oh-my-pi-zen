@@ -514,7 +514,7 @@ describe("ModelSelector role badge thinking display", () => {
 		expect(finalRendered).not.toContain("Refreshing OLLAMA CLOUD in background");
 	});
 
-	test("renders role chain badges DEFAULT#1 and DEFAULT#2 for fallback chain models", async () => {
+	test("renders role chain badges DEFAULT#0 and DEFAULT#1 for fallback chain models", async () => {
 		installTestTheme();
 		const firstModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		const secondModel = getBundledModel("openai", "gpt-4o-mini");
@@ -533,8 +533,8 @@ describe("ModelSelector role badge thinking display", () => {
 		installTestTheme();
 
 		const rendered = normalizeRenderedText(selector.render(220).join("\n"));
+		expect(rendered).toContain("DEFAULT#0");
 		expect(rendered).toContain("DEFAULT#1");
-		expect(rendered).toContain("DEFAULT#2");
 	});
 
 	test("hides add-fallback action when selected model is already in that role chain", async () => {
