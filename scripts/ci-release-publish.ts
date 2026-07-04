@@ -384,21 +384,6 @@ async function publishPreparedPackages(): Promise<void> {
 	}
 }
 
-async function publishPackage(pkg: PublishPackage): Promise<void> {
-	if (pkg.kind === "native") {
-		await publishNativePackage(pkg);
-		return;
-	}
-	const pkgDir = path.join(repoRoot, pkg.dir);
-	const manifest = await preparePackage(pkg);
-	const name = manifest.name ?? path.basename(pkg.dir);
-	if (manifest.private) {
-		console.log(`Skipping ${name} (private)`);
-		return;
-	}
-	await packAndPublish(pkgDir, name);
-}
-
 if (import.meta.main) {
 	if (nativeLeafTag) {
 		await publishNativeLeafPackage(nativeLeafTag);
