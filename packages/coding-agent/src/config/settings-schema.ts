@@ -479,7 +479,17 @@ export const SETTINGS_SCHEMA = {
 
 	disabledExtensions: { type: "array", default: EMPTY_STRING_ARRAY },
 
-	modelRoles: { type: "record", default: EMPTY_STRING_RECORD },
+	modelRoles: {
+		type: "record",
+		default: EMPTY_STRING_RECORD,
+		ui: {
+			tab: "model",
+			group: "Thinking",
+			label: "Model Role Chains",
+			description:
+				'Ordered model chains per role. Use comma-separated selectors in each value: {"default":"provider/a:high, provider/b:high"}. First entry is primary; later entries are retry fallbacks when model fallback is enabled.',
+		},
+	},
 
 	modelTags: { type: "record", default: EMPTY_MODEL_TAGS_RECORD },
 
@@ -1364,7 +1374,8 @@ export const SETTINGS_SCHEMA = {
 			tab: "model",
 			group: "Retry & Fallback",
 			label: "Retry Model Fallback",
-			description: "Allow retry recovery to switch to configured fallback models",
+			description:
+				"Allow retry recovery to switch to later entries in modelRoles.<role> chains and retry.fallbackChains.<role>.",
 		},
 	},
 	"retry.fallbackChains": { type: "record", default: {} as Record<string, string[]> },
