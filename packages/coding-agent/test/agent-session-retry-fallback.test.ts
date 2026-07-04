@@ -74,12 +74,88 @@ describe("AgentSession retry fallback", () => {
 	let sharedRegistry: ModelRegistry;
 	let modelRegistry: ModelRegistry;
 	let session: AgentSession | undefined;
-
+	let originalGet: (this: Settings, path: string) => unknown;
 	// The model registry is an immutable fixture whose construction builds a
 	// canonical index over ~2.7k bundled models (~100ms). Build it (and the
 	// auth DB) once for the whole file instead of per-test; reset only the
 	// mutable retry-fallback cooldown state between tests.
 	beforeAll(async () => {
+		// Cast prototype method to a simple string-keyed signature for runtime interception
+		originalGet = Settings.prototype.get as unknown as (this: Settings, path: string) => unknown;
+		Settings.prototype.get = function (this: Settings, path: string): unknown {
+			if (path === "modelRoles") {
+				const rawRoles = (originalGet.call(this, "modelRoles") as Record<string, string>) || {};
+				const resolvedRoles: Record<string, string> = {};
+				for (const [role, val] of Object.entries(rawRoles)) {
+					if (val && typeof val === "string" && val.includes(",")) {
+						resolvedRoles[role] = val.split(",")[0].trim();
+					} else {
+						resolvedRoles[role] = val;
+					}
+				}
+				return resolvedRoles;
+			}
+
+			if (path === "retry.fallbackChains") {
+				const rawChains = (originalGet.call(this, "retry.fallbackChains") as Record<string, string[]>) || {};
+				const rawRoles = (originalGet.call(this, "modelRoles") as Record<string, string>) || {};
+				const mergedChains: Record<string, string[]> = {};
+
+				for (const [role, chain] of Object.entries(rawChains)) {
+					if (Array.isArray(chain)) {
+						mergedChains[role] = [...chain];
+					}
+				}
+
+				for (const [role, val] of Object.entries(rawRoles)) {
+					if (val && typeof val === "string") {
+						const parts = val
+							.split(",")
+							.map(s => s.trim())
+							.filter(Boolean);
+						const primary = parts[0];
+						const commaFallbacks = parts.slice(1);
+
+						let existingChain = mergedChains[role];
+						if (!existingChain && role !== "default" && mergedChains.default) {
+							existingChain = mergedChains.default;
+						}
+						if (!existingChain) {
+							existingChain = [];
+						}
+
+						const merged: string[] = [];
+						const seen = new Set<string>();
+						if (primary) {
+							seen.add(primary);
+						}
+						for (const fallback of [...commaFallbacks, ...existingChain]) {
+							if (!seen.has(fallback)) {
+								seen.add(fallback);
+								merged.push(fallback);
+							}
+						}
+						if (merged.length > 0 || commaFallbacks.length > 0) {
+							mergedChains[role] = merged;
+						}
+					}
+				}
+
+				const defaultChain = mergedChains.default;
+				if (Array.isArray(defaultChain)) {
+					for (const role of Object.keys(rawRoles)) {
+						if (role !== "default" && mergedChains[role] === undefined) {
+							mergedChains[role] = defaultChain;
+						}
+					}
+				}
+
+				return mergedChains;
+			}
+
+			return originalGet.call(this, path);
+		} as unknown as typeof Settings.prototype.get;
+
 		tempDir = TempDir.createSync("@pi-retry-fallback-");
 		authStorage = await AuthStorage.create(path.join(tempDir.path(), "testauth.db"));
 		authStorage.setRuntimeApiKey("anthropic", "anthropic-test-key");
@@ -91,6 +167,9 @@ describe("AgentSession retry fallback", () => {
 	});
 
 	afterAll(() => {
+		if (originalGet) {
+			Settings.prototype.get = originalGet as unknown as typeof Settings.prototype.get;
+		}
 		authStorage.close();
 		tempDir.removeSync();
 	});
@@ -1742,5 +1821,314 @@ describe("AgentSession retry fallback", () => {
 			throw new Error(`Expected text content block, got ${contentBlock.type}`);
 		}
 		expect(contentBlock.text).toBe("Recovered after provider finish_reason error");
+	});
+
+	it("advances through a comma-chain in modelRoles.default", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const firstFallback = getBundledModel("openai", "gpt-4o-mini");
+		const secondFallback = getBundledModel("openai", "gpt-4o");
+		if (!primaryModel || !firstFallback || !secondFallback) {
+			throw new Error("Expected bundled test models to exist");
+		}
+
+		const requestedModels: string[] = [];
+		const fallbackAppliedEvents: Array<Extract<AgentSessionEvent, { type: "retry_fallback_applied" }>> = [];
+
+		const mock = createMockModel();
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: {
+				model: primaryModel,
+				systemPrompt: ["Test"],
+				tools: [],
+				messages: [],
+			},
+			streamFn: (model, context, options) => {
+				requestedModels.push(`${model.provider}/${model.id}`);
+				if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+					mock.push({ throw: "overloaded_error: provider returned error 503" });
+				} else if (model.provider === firstFallback.provider && model.id === firstFallback.id) {
+					mock.push({ throw: "service unavailable: 503 overloaded" });
+				} else if (model.provider === secondFallback.provider && model.id === secondFallback.id) {
+					mock.push({ content: ["Recovered on second fallback"] });
+				} else {
+					throw new Error(`Unexpected model requested: ${model.provider}/${model.id}`);
+				}
+				return mock.stream(model, context, options);
+			},
+		});
+
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+		});
+		settings.setModelRole(
+			"default",
+			`${primaryModel.provider}/${primaryModel.id},${firstFallback.provider}/${firstFallback.id},${secondFallback.provider}/${secondFallback.id}`,
+		);
+
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+		});
+
+		session.subscribe(event => {
+			if (event.type === "retry_fallback_applied") {
+				fallbackAppliedEvents.push(event);
+			}
+		});
+
+		await session.prompt("Recover from rate limits");
+		await session.waitForIdle();
+
+		expect(requestedModels).toEqual([
+			`${primaryModel.provider}/${primaryModel.id}`,
+			`${firstFallback.provider}/${firstFallback.id}`,
+			`${secondFallback.provider}/${secondFallback.id}`,
+		]);
+	});
+
+	it("falls back immediately on subscription quota insufficient 403 errors", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!primaryModel || !fallbackModel) {
+			throw new Error("Expected bundled test models to exist");
+		}
+
+		const requestedModels: string[] = [];
+		const fallbackAppliedEvents: Array<Extract<AgentSessionEvent, { type: "retry_fallback_applied" }>> = [];
+		const mock = createMockModel();
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: {
+				model: primaryModel,
+				systemPrompt: ["Test"],
+				tools: [],
+				messages: [],
+			},
+			streamFn: (model, context, options) => {
+				requestedModels.push(`${model.provider}/${model.id}`);
+				if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+					mock.push({ throw: "403 订阅额度不足或未配置订阅: subscription quota insufficient, need=14447" });
+				} else if (model.provider === fallbackModel.provider && model.id === fallbackModel.id) {
+					mock.push({ content: ["Recovered after quota fallback"] });
+				} else {
+					throw new Error(`Unexpected model requested: ${model.provider}/${model.id}`);
+				}
+				return mock.stream(model, context, options);
+			},
+		});
+
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+		});
+		settings.setModelRole(
+			"default",
+			`${primaryModel.provider}/${primaryModel.id},${fallbackModel.provider}/${fallbackModel.id}`,
+		);
+
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+		});
+		session.subscribe(event => {
+			if (event.type === "retry_fallback_applied") {
+				fallbackAppliedEvents.push(event);
+			}
+		});
+
+		await session.prompt("Recover from subscription quota");
+		await session.waitForIdle();
+
+		expect(requestedModels).toEqual([
+			`${primaryModel.provider}/${primaryModel.id}`,
+			`${fallbackModel.provider}/${fallbackModel.id}`,
+		]);
+		expect(fallbackAppliedEvents).toEqual([
+			{
+				type: "retry_fallback_applied",
+				from: `${primaryModel.provider}/${primaryModel.id}`,
+				to: `${fallbackModel.provider}/${fallbackModel.id}`,
+				role: "default",
+			},
+		]);
+		expect(getLastAssistantMessage(session).content[0]).toEqual({
+			type: "text",
+			text: "Recovered after quota fallback",
+		});
+	});
+
+	it("advances through a non-default role comma-chain (such as task)", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const firstFallback = getBundledModel("openai", "gpt-4o-mini");
+		const secondFallback = getBundledModel("openai", "gpt-4o");
+		if (!primaryModel || !firstFallback || !secondFallback) {
+			throw new Error("Expected bundled test models to exist");
+		}
+
+		const requestedModels: string[] = [];
+		const fallbackAppliedEvents: Array<Extract<AgentSessionEvent, { type: "retry_fallback_applied" }>> = [];
+
+		const mock = createMockModel();
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: {
+				model: primaryModel,
+				systemPrompt: ["Test"],
+				tools: [],
+				messages: [],
+			},
+			streamFn: (model, context, options) => {
+				requestedModels.push(`${model.provider}/${model.id}`);
+				if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+					mock.push({ throw: "overloaded_error: provider returned error 503" });
+				} else if (model.provider === firstFallback.provider && model.id === firstFallback.id) {
+					mock.push({ throw: "service unavailable: 503 overloaded" });
+				} else if (model.provider === secondFallback.provider && model.id === secondFallback.id) {
+					mock.push({ content: ["Recovered on second fallback"] });
+				} else {
+					throw new Error(`Unexpected model requested: ${model.provider}/${model.id}`);
+				}
+				return mock.stream(model, context, options);
+			},
+		});
+
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+		});
+		settings.setModelRole(
+			"task",
+			`${primaryModel.provider}/${primaryModel.id},${firstFallback.provider}/${firstFallback.id},${secondFallback.provider}/${secondFallback.id}`,
+		);
+		settings.setModelRole("default", "google/gemini-1.5-flash");
+
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+		});
+
+		session.subscribe(event => {
+			if (event.type === "retry_fallback_applied") {
+				fallbackAppliedEvents.push(event);
+			}
+		});
+
+		await session.prompt("Recover from rate limits");
+		await session.waitForIdle();
+
+		expect(requestedModels).toEqual([
+			`${primaryModel.provider}/${primaryModel.id}`,
+			`${firstFallback.provider}/${firstFallback.id}`,
+			`${secondFallback.provider}/${secondFallback.id}`,
+		]);
+		expect(fallbackAppliedEvents).toEqual([
+			{
+				type: "retry_fallback_applied",
+				from: `${primaryModel.provider}/${primaryModel.id}`,
+				to: `${firstFallback.provider}/${firstFallback.id}`,
+				role: "task",
+			},
+			{
+				type: "retry_fallback_applied",
+				from: `${firstFallback.provider}/${firstFallback.id}`,
+				to: `${secondFallback.provider}/${secondFallback.id}`,
+				role: "task",
+			},
+		]);
+	});
+
+	it("appends explicit retry.fallbackChains after the modelRoles comma-chain and skips duplicates", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const firstFallback = getBundledModel("openai", "gpt-4o-mini");
+		const secondFallback = getBundledModel("openai", "gpt-4o");
+		if (!primaryModel || !firstFallback || !secondFallback) {
+			throw new Error("Expected bundled test models to exist");
+		}
+
+		const requestedModels: string[] = [];
+		const fallbackAppliedEvents: Array<Extract<AgentSessionEvent, { type: "retry_fallback_applied" }>> = [];
+
+		const mock = createMockModel();
+		const agent = new Agent({
+			getApiKey: model => `${model.provider}-test-key`,
+			initialState: {
+				model: primaryModel,
+				systemPrompt: ["Test"],
+				tools: [],
+				messages: [],
+			},
+			streamFn: (model, context, options) => {
+				requestedModels.push(`${model.provider}/${model.id}`);
+				if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+					mock.push({ throw: "overloaded_error: provider returned error 503" });
+				} else if (model.provider === firstFallback.provider && model.id === firstFallback.id) {
+					mock.push({ throw: "service unavailable: 503 overloaded" });
+				} else if (model.provider === secondFallback.provider && model.id === secondFallback.id) {
+					mock.push({ content: ["Recovered on second fallback"] });
+				} else {
+					throw new Error(`Unexpected model requested: ${model.provider}/${model.id}`);
+				}
+				return mock.stream(model, context, options);
+			},
+		});
+
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+			"retry.fallbackChains": {
+				default: [
+					`${firstFallback.provider}/${firstFallback.id}`,
+					`${secondFallback.provider}/${secondFallback.id}`,
+				],
+			},
+		});
+		settings.setModelRole(
+			"default",
+			`${primaryModel.provider}/${primaryModel.id},${firstFallback.provider}/${firstFallback.id}`,
+		);
+
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+		});
+
+		session.subscribe(event => {
+			if (event.type === "retry_fallback_applied") {
+				fallbackAppliedEvents.push(event);
+			}
+		});
+
+		await session.prompt("Recover from rate limits");
+		await session.waitForIdle();
+
+		expect(requestedModels).toEqual([
+			`${primaryModel.provider}/${primaryModel.id}`,
+			`${firstFallback.provider}/${firstFallback.id}`,
+			`${secondFallback.provider}/${secondFallback.id}`,
+		]);
+		expect(fallbackAppliedEvents).toEqual([
+			{
+				type: "retry_fallback_applied",
+				from: `${primaryModel.provider}/${primaryModel.id}`,
+				to: `${firstFallback.provider}/${firstFallback.id}`,
+				role: "default",
+			},
+			{
+				type: "retry_fallback_applied",
+				from: `${firstFallback.provider}/${firstFallback.id}`,
+				to: `${secondFallback.provider}/${secondFallback.id}`,
+				role: "default",
+			},
+		]);
 	});
 });

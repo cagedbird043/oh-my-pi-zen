@@ -180,7 +180,9 @@ function pathToSettingDef(path: SettingPath): SettingDef | null {
 	}
 
 	if (schemaType === "record") {
-		return path === "providers.maxInFlightRequests" ? { ...base, type: "providerLimits" } : { ...base, type: "text" };
+		if (path === "providers.maxInFlightRequests") return { ...base, type: "providerLimits" };
+		if (path === "modelRoles") return { ...base, type: "text" };
+		return { ...base, type: "text" };
 	}
 
 	return null;

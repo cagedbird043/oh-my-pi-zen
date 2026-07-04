@@ -179,8 +179,10 @@ import {
 	parseModelString,
 	type ResolvedModelRoleValue,
 	resolveAdvisorRoleSelection,
+	resolveConfiguredModelPatterns,
 	resolveModelOverride,
 	resolveModelRoleValue,
+	setModelRoleChainPrimary,
 } from "../config/model-resolver";
 import { MODEL_ROLE_IDS, MODEL_ROLES } from "../config/model-roles";
 import { expandPromptTemplate, type PromptTemplate } from "../config/prompt-templates";
@@ -9020,6 +9022,7 @@ export class AgentSession {
 			selector?: string;
 			thinkingLevel?: ThinkingLevel;
 			persist?: boolean;
+			preserveRoleChain?: boolean;
 			currentContextTokens?: number;
 		},
 	): Promise<{ switched: boolean }> {
@@ -9035,9 +9038,12 @@ export class AgentSession {
 		this.#setModelWithProviderSessionReset(targetModel);
 		this.sessionManager.appendModelChange(`${targetModel.provider}/${targetModel.id}`, role);
 		if (options?.persist) {
+			const roleValue = this.#formatRoleModelValue(role, targetModel, options.selector, options.thinkingLevel);
 			this.settings.setModelRole(
 				role,
-				this.#formatRoleModelValue(role, targetModel, options.selector, options.thinkingLevel),
+				options.preserveRoleChain
+					? setModelRoleChainPrimary(this.settings.getModelRole(role), roleValue)
+					: roleValue,
 			);
 		}
 		this.settings.getStorage()?.recordModelUsage(`${targetModel.provider}/${targetModel.id}`);
@@ -12037,16 +12043,19 @@ export class AgentSession {
 		thinkingLevelOverride?: ThinkingLevel,
 	): string {
 		const modelKey = selectorOverride ?? `${model.provider}/${model.id}`;
-		if (thinkingLevelOverride !== undefined) {
-			return formatModelSelectorValue(modelKey, thinkingLevelOverride);
-		}
 		const existingRoleValue = this.settings.getModelRole(role);
-		if (!existingRoleValue) return modelKey;
-
-		const thinkingLevel = extractExplicitThinkingSelector(existingRoleValue, this.settings, {
-			isLiteralModelId: (provider, id) => this.#modelRegistry.find(provider, id) !== undefined,
-		});
-		return formatModelSelectorValue(modelKey, thinkingLevel);
+		let primaryValue: string;
+		if (thinkingLevelOverride !== undefined) {
+			primaryValue = formatModelSelectorValue(modelKey, thinkingLevelOverride);
+		} else if (existingRoleValue) {
+			const thinkingLevel = extractExplicitThinkingSelector(existingRoleValue, this.settings, {
+				isLiteralModelId: (provider, id) => this.#modelRegistry.find(provider, id) !== undefined,
+			});
+			primaryValue = formatModelSelectorValue(modelKey, thinkingLevel);
+		} else {
+			primaryValue = modelKey;
+		}
+		return primaryValue;
 	}
 	#resolveConfiguredModelTarget(
 		configuredTarget: string | undefined,
@@ -13462,12 +13471,19 @@ export class AgentSession {
 
 	#getRetryFallbackChains(): RetryFallbackChains {
 		const configuredChains = this.settings.get("retry.fallbackChains");
-		if (!configuredChains || typeof configuredChains !== "object") return {};
-		const chains: RetryFallbackChains = { ...(configuredChains as RetryFallbackChains) };
+		const chains: RetryFallbackChains = {};
+		if (configuredChains && typeof configuredChains === "object" && !Array.isArray(configuredChains)) {
+			for (const [role, chain] of Object.entries(configuredChains as RetryFallbackChains)) {
+				if (Array.isArray(chain)) chains[role] = [...chain];
+			}
+		}
+		for (const role of Object.keys(this.settings.getModelRoles())) {
+			if (chains[role] === undefined) chains[role] = [];
+		}
 		const defaultChain = chains.default;
 		if (Array.isArray(defaultChain)) {
 			for (const role of Object.keys(this.settings.getModelRoles())) {
-				if (role !== "default" && chains[role] === undefined) {
+				if (role !== "default" && chains[role]?.length === 0) {
 					chains[role] = defaultChain;
 				}
 			}
@@ -13520,9 +13536,16 @@ export class AgentSession {
 		return this.settings.get("retry.fallbackRevertPolicy") === "never" ? "never" : "cooldown-expiry";
 	}
 
-	#getRetryFallbackPrimarySelector(role: string): RetryFallbackSelector | undefined {
+	#getRetryFallbackRoleSelectors(role: string): RetryFallbackSelector[] {
 		const configuredSelector = this.settings.getModelRole(role);
-		return configuredSelector ? parseRetryFallbackSelector(configuredSelector, this.#modelRegistry) : undefined;
+		if (!configuredSelector) return [];
+		return resolveConfiguredModelPatterns(configuredSelector, this.settings)
+			.map(selector => parseRetryFallbackSelector(selector, this.#modelRegistry))
+			.filter((selector): selector is RetryFallbackSelector => selector !== undefined);
+	}
+
+	#getRetryFallbackPrimarySelector(role: string): RetryFallbackSelector | undefined {
+		return this.#getRetryFallbackRoleSelectors(role)[0];
 	}
 
 	#clearActiveRetryFallback(): void {
@@ -13579,15 +13602,20 @@ export class AgentSession {
 	}
 
 	#getRetryFallbackEffectiveChain(role: string): RetryFallbackSelector[] {
-		const primarySelector = this.#getRetryFallbackPrimarySelector(role);
-		if (!primarySelector) return [];
-		const chain = [primarySelector];
-		const seen = new Set<string>([primarySelector.raw]);
+		const chain: RetryFallbackSelector[] = [];
+		const seen = new Set<string>();
+		const addSelector = (selector: RetryFallbackSelector): void => {
+			const key = `${selector.provider}/${selector.id}:${selector.thinkingLevel ?? ""}`;
+			if (seen.has(key)) return;
+			seen.add(key);
+			chain.push(selector);
+		};
+		for (const selector of this.#getRetryFallbackRoleSelectors(role)) {
+			addSelector(selector);
+		}
 		for (const selector of this.#getRetryFallbackChains()[role] ?? []) {
 			const parsed = parseRetryFallbackSelector(selector, this.#modelRegistry);
-			if (!parsed || seen.has(parsed.raw)) continue;
-			seen.add(parsed.raw);
-			chain.push(parsed);
+			if (parsed) addSelector(parsed);
 		}
 		return chain;
 	}
