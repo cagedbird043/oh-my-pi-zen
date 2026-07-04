@@ -19,7 +19,11 @@ import {
 } from "@oh-my-pi/pi-tui";
 import { formatNumber } from "@oh-my-pi/pi-utils";
 import type { ModelRegistry } from "../../config/model-registry";
-import { getModelMatchPreferences, resolveModelRoleValue } from "../../config/model-resolver";
+import {
+	getModelMatchPreferences,
+	resolveConfiguredModelPatterns,
+	resolveModelRoleValue,
+} from "../../config/model-resolver";
 import { getKnownRoleIds, getRoleInfo, MODEL_ROLE_IDS, MODEL_ROLES } from "../../config/model-roles";
 import type { Settings } from "../../config/settings";
 import { type ThemeColor, theme } from "../../modes/theme/theme";
@@ -88,18 +92,24 @@ interface RoleAssignment {
 	model: Model;
 	thinkingLevel: ConfiguredThinkingLevel;
 	autoSelected: boolean;
+	chainIndex: number;
+	chainLength: number;
 }
+
+type RoleChainAction = "primary" | "fallback";
 
 type RoleSelectCallback = (
 	model: Model,
 	role: string | null,
 	thinkingLevel?: ConfiguredThinkingLevel,
 	selector?: string,
+	action?: RoleChainAction,
 ) => void;
 type CancelCallback = () => void;
 interface MenuRoleAction {
 	label: string;
-	role: string; // now accepts custom role strings
+	role: string;
+	action: RoleChainAction;
 }
 
 interface ProviderTabState {
@@ -140,6 +150,7 @@ export class ModelSelectorComponent extends Container {
 	#filteredModels: ModelItem[] = [];
 	#selectedIndex: number = 0;
 	#roles = {} as Record<string, RoleAssignment | undefined>;
+	#roleChains = {} as Record<string, RoleAssignment[]>;
 	#settings = null as unknown as Settings;
 	#modelRegistry = null as unknown as ModelRegistry;
 	#onSelectCallback = (() => {}) as RoleSelectCallback;
@@ -170,6 +181,7 @@ export class ModelSelectorComponent extends Container {
 	#menuSelectedIndex: number = 0;
 	#menuStep: "role" | "thinking" = "role";
 	#menuSelectedRole: string | null = null;
+	#menuSelectedRoleAction: RoleChainAction = "primary";
 
 	constructor(
 		tui: TUI,
@@ -284,18 +296,26 @@ export class ModelSelectorComponent extends Container {
 	}
 
 	#buildMenuRoleActions(): void {
-		this.#menuRoleActions = getKnownRoleIds(this.#settings).map(role => {
+		this.#menuRoleActions = getKnownRoleIds(this.#settings).flatMap(role => {
 			const roleInfo = getRoleInfo(role, this.#settings);
 			const roleLabel = roleInfo.tag ? `${roleInfo.tag} (${roleInfo.name})` : roleInfo.name;
-			return {
-				label: `Set as ${roleLabel}`,
-				role,
-			};
+			return [
+				{ label: `Set as ${roleLabel} primary`, role, action: "primary" as const },
+				{ label: `Add ${roleLabel} fallback`, role, action: "fallback" as const },
+			];
+		});
+	}
+
+	#getMenuRoleActionsForModel(model: Model): MenuRoleAction[] {
+		return this.#menuRoleActions.filter(action => {
+			if (action.action !== "fallback") return true;
+			return !(this.#roleChains[action.role] ?? []).some(assigned => modelsAreEqual(assigned.model, model));
 		});
 	}
 
 	#loadRoleModels(autoCandidateModels?: ReadonlyArray<Model>): void {
 		const nextRoles = {} as Record<string, RoleAssignment | undefined>;
+		const nextRoleChains = {} as Record<string, RoleAssignment[]>;
 		const allModels = this.#modelRegistry.getAll();
 		const matchPreferences = getModelMatchPreferences(this.#settings);
 		const knownRoles = getKnownRoleIds(this.#settings);
@@ -306,16 +326,26 @@ export class ModelSelectorComponent extends Container {
 			if (!roleValue) continue;
 			configuredRoles.add(role);
 
-			const resolved = resolveModelRoleValue(roleValue, allModels, {
-				settings: this.#settings,
-				matchPreferences,
-			});
-			if (resolved.model) {
-				nextRoles[role] = {
-					model: resolved.model,
-					thinkingLevel: this.#getResolvedRoleThinkingLevel(role, resolved),
-					autoSelected: false,
-				};
+			const chainPatterns = resolveConfiguredModelPatterns(roleValue, this.#settings);
+			const assignments: RoleAssignment[] = [];
+			for (const pattern of chainPatterns) {
+				const resolved = resolveModelRoleValue(pattern, allModels, {
+					settings: this.#settings,
+					matchPreferences,
+				});
+				if (resolved.model) {
+					assignments.push({
+						model: resolved.model,
+						thinkingLevel: this.#getResolvedRoleThinkingLevel(role, resolved),
+						autoSelected: false,
+						chainIndex: assignments.length,
+						chainLength: chainPatterns.length,
+					});
+				}
+			}
+			if (assignments.length > 0) {
+				nextRoleChains[role] = assignments.map(assignment => ({ ...assignment, chainLength: assignments.length }));
+				nextRoles[role] = nextRoleChains[role]?.[0];
 			}
 		}
 
@@ -332,11 +362,15 @@ export class ModelSelectorComponent extends Container {
 					model: resolved.model,
 					thinkingLevel: this.#getResolvedRoleThinkingLevel(role, resolved),
 					autoSelected: true,
+					chainIndex: 0,
+					chainLength: 1,
 				};
+				nextRoleChains[role] = [nextRoles[role]!];
 			}
 		}
 
 		this.#roles = nextRoles;
+		this.#roleChains = nextRoleChains;
 	}
 
 	/**
@@ -824,20 +858,27 @@ export class ModelSelectorComponent extends Container {
 
 			// Build role badges. Solid badges are configured; outlined badges are auto-selected defaults.
 			const roleBadgeTokens: string[] = [];
-			for (const role of MODEL_ROLE_IDS) {
-				const { tag, color, hidden } = getRoleInfo(role, this.#settings);
-				if (hidden) continue;
-				const assigned = this.#roles[role];
-				if (!tag || !assigned || !modelsAreEqual(assigned.model, item.model)) continue;
-
-				roleBadgeTokens.push(makeRoleBadgeToken(tag, color ?? "success", assigned));
-			}
-			// Custom role badges
-			for (const [role, assigned] of Object.entries(this.#roles)) {
-				if (role in MODEL_ROLES || !assigned || !modelsAreEqual(assigned.model, item.model)) continue;
+			const pushRoleBadge = (role: string, assigned: RoleAssignment): void => {
+				if (!modelsAreEqual(assigned.model, item.model)) return;
 				const roleInfo = getRoleInfo(role, this.#settings);
-				const badgeLabel = roleInfo.tag ?? roleInfo.name;
-				roleBadgeTokens.push(makeRoleBadgeToken(badgeLabel, roleInfo.color ?? "muted", assigned));
+				if (roleInfo.hidden) return;
+				const baseLabel = roleInfo.tag ?? roleInfo.name;
+				if (!baseLabel) return;
+				const label =
+					assigned.autoSelected || assigned.chainLength <= 1 ? baseLabel : `${baseLabel}#${assigned.chainIndex}`;
+				const color = assigned.chainIndex === 0 ? (roleInfo.color ?? "success") : "muted";
+				roleBadgeTokens.push(makeRoleBadgeToken(label, color, assigned));
+			};
+			for (const role of MODEL_ROLE_IDS) {
+				for (const assigned of this.#roleChains[role] ?? []) {
+					pushRoleBadge(role, assigned);
+				}
+			}
+			for (const [role, assignments] of Object.entries(this.#roleChains)) {
+				if (role in MODEL_ROLES) continue;
+				for (const assigned of assignments) {
+					pushRoleBadge(role, assigned);
+				}
 			}
 			const badgeText = roleBadgeTokens.length > 0 ? ` ${roleBadgeTokens.join(" ")}` : "";
 
@@ -962,6 +1003,7 @@ export class ModelSelectorComponent extends Container {
 		this.#isMenuOpen = true;
 		this.#menuStep = "role";
 		this.#menuSelectedRole = null;
+		this.#menuSelectedRoleAction = "primary";
 		this.#menuSelectedIndex = this.#coerceMenuSelectedIndex(0);
 		// Collapse the model list while the action/thinking menu is open so the
 		// menu owns the full viewport instead of stacking below a now-irrelevant
@@ -973,7 +1015,7 @@ export class ModelSelectorComponent extends Container {
 	#closeMenu(): void {
 		this.#isMenuOpen = false;
 		this.#menuStep = "role";
-		this.#menuSelectedRole = null;
+		this.#menuSelectedRoleAction = "primary";
 		this.#menuContainer.clear();
 		// Restore the model list that #openMenu collapsed.
 		this.#updateList();
@@ -993,15 +1035,17 @@ export class ModelSelectorComponent extends Container {
 					const label = getConfiguredThinkingLevelMetadata(thinkingLevel).label;
 					return `${prefix}${label}`;
 				})
-			: this.#menuRoleActions.map((action, index) => {
+			: this.#getMenuRoleActionsForModel(selectedItem.model).map((action, index) => {
 					const prefix = index === this.#menuSelectedIndex ? `  ${theme.nav.cursor} ` : "    ";
 					return `${prefix}${action.label}`;
 				});
 
-		const selectedRoleName = this.#menuSelectedRole ? getRoleInfo(this.#menuSelectedRole, this.#settings).name : "";
+		const selectedRoleInfo = this.#menuSelectedRole ? getRoleInfo(this.#menuSelectedRole, this.#settings) : undefined;
+		const selectedRoleName = selectedRoleInfo?.name ?? "";
+		const actionLabel = this.#menuSelectedRoleAction === "fallback" ? "fallback" : "primary";
 		const headerText =
 			showingThinking && this.#menuSelectedRole
-				? `  Thinking for: ${selectedRoleName} (${selectedItem.id})`
+				? `  Thinking for ${actionLabel}: ${selectedRoleName} (${selectedItem.id})`
 				: `  Action for: ${selectedItem.id}`;
 		const hintText = showingThinking ? "  Enter: confirm  Esc: back" : "  Enter: continue  Esc: cancel";
 		// Window the option list so a long action/thinking menu scrolls inside the
@@ -1025,7 +1069,10 @@ export class ModelSelectorComponent extends Container {
 		if (showingThinking && this.#menuSelectedRole) {
 			this.#menuContainer.addChild(
 				new Text(
-					theme.fg("text", `  Thinking for: ${theme.bold(selectedRoleName)} (${theme.bold(selectedItem.id)})`),
+					theme.fg(
+						"text",
+						`  Thinking for: ${theme.bold(selectedRoleName)} (${theme.bold(selectedItem.id)})${actionLabel === "fallback" ? " fallback" : ""}`,
+					),
 					0,
 					0,
 				),
@@ -1175,10 +1222,11 @@ export class ModelSelectorComponent extends Container {
 		const selectedItem = this.#getSelectedItem();
 		if (!selectedItem || this.#isItemDisabled(selectedItem)) return;
 
+		const roleActions = this.#getMenuRoleActionsForModel(selectedItem.model);
 		const optionCount =
 			this.#menuStep === "thinking" && this.#menuSelectedRole !== null
 				? this.#getThinkingLevelsForModel(selectedItem.model).length
-				: this.#menuRoleActions.length;
+				: roleActions.length;
 		if (optionCount === 0) return;
 
 		if (matchesSelectUp(keyData)) {
@@ -1193,9 +1241,10 @@ export class ModelSelectorComponent extends Container {
 
 		if (matchesKey(keyData, "enter") || matchesKey(keyData, "return") || keyData === "\n") {
 			if (this.#menuStep === "role") {
-				const action = this.#menuRoleActions[this.#menuSelectedIndex];
+				const action = roleActions[this.#menuSelectedIndex];
 				if (!action) return;
 				this.#menuSelectedRole = action.role;
+				this.#menuSelectedRoleAction = action.action;
 				this.#menuStep = "thinking";
 				this.#menuSelectedIndex = this.#getThinkingPreselectIndex(action.role, selectedItem.model);
 				this.#updateMenu();
@@ -1214,8 +1263,10 @@ export class ModelSelectorComponent extends Container {
 		if (getKeybindings().matches(keyData, "tui.select.cancel")) {
 			if (this.#menuStep === "thinking" && this.#menuSelectedRole !== null) {
 				this.#menuStep = "role";
-				const roleIndex = this.#menuRoleActions.findIndex(action => action.role === this.#menuSelectedRole);
-				this.#menuSelectedRole = null;
+				const roleIndex = roleActions.findIndex(
+					action => action.role === this.#menuSelectedRole && action.action === this.#menuSelectedRoleAction,
+				);
+				this.#menuSelectedRoleAction = "primary";
 				this.#menuSelectedIndex = roleIndex >= 0 ? roleIndex : 0;
 				this.#updateMenu();
 				return;
@@ -1236,12 +1287,35 @@ export class ModelSelectorComponent extends Container {
 		}
 
 		const selectedThinkingLevel = thinkingLevel ?? this.#getCurrentRoleThinkingLevel(role);
+		const selectedChain = this.#roleChains[role] ?? [];
+		const chainIndex = this.#menuSelectedRoleAction === "fallback" ? selectedChain.length : 0;
 
 		// Update local state for UI
-		this.#roles[role] = { model: item.model, thinkingLevel: selectedThinkingLevel, autoSelected: false };
+		const assignment: RoleAssignment = {
+			model: item.model,
+			thinkingLevel: selectedThinkingLevel,
+			autoSelected: false,
+			chainIndex,
+			chainLength: Math.max(selectedChain.length + (this.#menuSelectedRoleAction === "fallback" ? 1 : 0), 1),
+		};
+		if (this.#menuSelectedRoleAction === "fallback") {
+			this.#roleChains[role] = [...selectedChain, assignment].map((entry, index, chain) => ({
+				...entry,
+				chainIndex: index,
+				chainLength: chain.length,
+			}));
+		} else {
+			const tail = selectedChain.filter(assigned => !modelsAreEqual(assigned.model, item.model));
+			this.#roleChains[role] = [assignment, ...tail].map((entry, index, chain) => ({
+				...entry,
+				chainIndex: index,
+				chainLength: chain.length,
+			}));
+		}
+		this.#roles[role] = this.#roleChains[role]?.[0];
 
 		// Notify caller (for updating agent state if needed)
-		this.#onSelectCallback(item.model, role, selectedThinkingLevel, item.selector);
+		this.#onSelectCallback(item.model, role, selectedThinkingLevel, item.selector, this.#menuSelectedRoleAction);
 
 		// Update list to show new badges
 		this.#updateList();
