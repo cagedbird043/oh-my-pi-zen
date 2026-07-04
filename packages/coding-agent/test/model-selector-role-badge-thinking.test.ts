@@ -17,7 +17,7 @@ function normalizeRenderedText(text: string): string {
 const DEFAULT_RETRY_FALLBACK_ACTION_LABEL = "Set as DEFAULT retry fallback";
 const DEFAULT_RETRY_FALLBACK_ACTION = "retryFallback";
 
-type ModelSelectorAction = "modelRole" | typeof DEFAULT_RETRY_FALLBACK_ACTION;
+type ModelSelectorAction = "primary" | "fallback" | typeof DEFAULT_RETRY_FALLBACK_ACTION;
 type TestRoleSelectArgs = [
 	model: Model,
 	role: string | null,
@@ -567,5 +567,137 @@ describe("ModelSelector role badge thinking display", () => {
 		const finalRendered = normalizeRenderedText(selector.render(220).join("\n"));
 		expect(finalRendered).toContain("deepseek-v4-pro");
 		expect(finalRendered).not.toContain("Refreshing OLLAMA CLOUD in background");
+	});
+
+	test("renders role chain badges DEFAULT#0 and DEFAULT#1 for fallback chain models", async () => {
+		installTestTheme();
+		const firstModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const secondModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!firstModel || !secondModel) {
+			throw new Error("Expected bundled models anthropic/claude-sonnet-4-5 and openai/gpt-4o-mini");
+		}
+
+		const settings = Settings.isolated({
+			modelRoles: {
+				default: `${firstModel.provider}/${firstModel.id},${secondModel.provider}/${secondModel.id}`,
+			},
+		});
+
+		const selector = createScopedSelector([firstModel, secondModel], settings, () => {});
+		await Bun.sleep(0);
+		installTestTheme();
+
+		const rendered = normalizeRenderedText(selector.render(220).join("\n"));
+		expect(rendered).toContain("DEFAULT#0");
+		expect(rendered).toContain("DEFAULT#1");
+	});
+
+	test("hides add-fallback action when selected model is already in that role chain", async () => {
+		installTestTheme();
+		const firstModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const secondModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!firstModel || !secondModel) {
+			throw new Error("Expected bundled models anthropic/claude-sonnet-4-5 and openai/gpt-4o-mini");
+		}
+
+		const settings = Settings.isolated({
+			modelRoles: {
+				default: `${firstModel.provider}/${firstModel.id},${secondModel.provider}/${secondModel.id}`,
+			},
+		});
+
+		const selector = createScopedSelector([firstModel, secondModel], settings, () => {});
+		installTestTheme();
+
+		selector.handleInput("\n");
+		const menuRendered = normalizeRenderedText(selector.render(220).join("\n"));
+		expect(menuRendered).toContain("Set as DEFAULT (Default) primary");
+		expect(menuRendered).not.toContain("Add DEFAULT (Default) fallback");
+	});
+
+	test("removes the promoted model from its previous fallback slot in the open selector", async () => {
+		installTestTheme();
+		const firstModel = createContextTestModel("primary", 1000);
+		const secondModel = createContextTestModel("fallback-one", 1000);
+		const thirdModel = createContextTestModel("fallback-two", 1000);
+		const settings = Settings.isolated({
+			modelRoles: {
+				default: `${firstModel.provider}/${firstModel.id},${secondModel.provider}/${secondModel.id},${thirdModel.provider}/${thirdModel.id}`,
+			},
+		});
+
+		const selector = createScopedSelector([firstModel, secondModel, thirdModel], settings, () => {});
+		installTestTheme();
+
+		selector.handleInput("\x1b[B");
+		selector.handleInput("\n");
+		selector.handleInput("\n");
+		selector.handleInput("\n");
+
+		const promotedLine = selector
+			.render(220)
+			.map(line => normalizeRenderedText(line))
+			.find(line => line.includes("fallback-one"));
+		expect(promotedLine).toContain("DEFAULT#0");
+		expect(promotedLine).not.toContain("DEFAULT#1");
+	});
+
+	test("handles add-fallback callback action and notifies the handler", async () => {
+		installTestTheme();
+		const firstModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const secondModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!firstModel || !secondModel) {
+			throw new Error("Expected bundled models anthropic/claude-sonnet-4-5 and openai/gpt-4o-mini");
+		}
+
+		const settings = Settings.isolated({
+			modelRoles: {
+				default: `${firstModel.provider}/${firstModel.id}`,
+			},
+		});
+
+		const selectCalls: Array<{
+			model: Model;
+			role: string | null;
+			thinkingLevel?: ConfiguredThinkingLevel;
+			selector?: string;
+			action?: string;
+		}> = [];
+
+		const onSelect = (
+			model: Model,
+			role: string | null,
+			thinkingLevel?: ConfiguredThinkingLevel,
+			selector?: string,
+			action?: string,
+		) => {
+			selectCalls.push({ model, role, thinkingLevel, selector, action });
+		};
+
+		const selector = createScopedSelector([firstModel, secondModel], settings, onSelect);
+		await Bun.sleep(0);
+		installTestTheme();
+
+		selector.handleInput("\x1b[B");
+		selector.handleInput("\n");
+		installTestTheme();
+
+		const menuRendered = normalizeRenderedText(selector.render(220).join("\n"));
+		expect(menuRendered).toContain("Add DEFAULT (Default) fallback");
+
+		selector.handleInput("\x1b[B");
+		selector.handleInput("\n");
+		installTestTheme();
+
+		selector.handleInput("\n");
+
+		expect(selectCalls).toHaveLength(1);
+		expect(selectCalls[0]).toEqual({
+			model: secondModel,
+			role: "default",
+			thinkingLevel: "inherit",
+			selector: "openai/gpt-4o-mini",
+			action: "fallback",
+		});
 	});
 });

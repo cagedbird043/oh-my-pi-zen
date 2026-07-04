@@ -189,8 +189,11 @@
 - Fixed cmux-backend `browser({action:"run"})` calls crashing the entire process with an unhandled rejection when the tab was released mid-run (e.g. a sibling subagent calling `browser({action:"close", all:true})` or a session-scoped tab reap). `runInTabWithSnapshot` in `tab-supervisor.ts` creates a `Promise.withResolvers()` triple so `releaseTab` can signal in-flight runs, but the cmux branch used to await `runCmuxCode(...)` directly and never awaited the local promise. When `releaseTab` rejected that orphaned promise ("Tab ... was closed"), Bun surfaced it as an unhandled rejection and the top-level handler tore the whole session down, killing every other tab and subagent sharing it. Both backends now await the same `promise` (so `pending.reject` always has an attached handler AND the caller sees `Tab "..." was closed` immediately instead of blocking to the run's timeout), and a new `pending.closeAc` is composed into the cmux run's abort signal so `wait(...)`, in-flight cmux socket calls, and the facade proxies unwind promptly when the tab is closed rather than leaking to their own timeout ([#4499](https://github.com/can1357/oh-my-pi/issues/4499)).
 - Fixed `omitThinking` settings propagation so settings-aware streams request hidden thinking summaries when users explicitly enable the option.
 - Fixed Zen prerelease builds checking the upstream `@oh-my-pi/pi-coding-agent` stable channel and falsely reporting `16.3.6` as newer than `16.3.6-zen.N`.
+- Fixed the model selector offering `Add ROLE fallback` for a model that is already present in that role's ordered fallback chain.
 
 ### Added
+- Added ordered model role chains: comma-separated `modelRoles.<role>` entries now act as provider fallback chains, and the model selector shows/edit them with zero-based badges like `ROLE#0`, `ROLE#1`, etc.
+- Added `statusLine.segmentOptions.model.showProvider` so custom-provider model names can render as `provider/Model Name` in the status line.
 
 - Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
 

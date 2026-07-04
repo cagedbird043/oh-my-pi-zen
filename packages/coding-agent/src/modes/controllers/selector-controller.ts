@@ -12,7 +12,12 @@ import {
 	resolveAdvisorConfigEditPath,
 	saveWatchdogConfigFile,
 } from "../../advisor";
-import { formatModelSelectorValue, resolveAdvisorRoleSelection } from "../../config/model-resolver";
+import {
+	appendModelRoleChainFallback,
+	formatModelSelectorValue,
+	resolveAdvisorRoleSelection,
+	setModelRoleChainPrimary,
+} from "../../config/model-resolver";
 import { getRoleInfo } from "../../config/model-roles";
 import { settings } from "../../config/settings";
 import { disableProvider, enableProvider } from "../../discovery";
@@ -629,32 +634,55 @@ export class SelectorController {
 							done();
 							this.ctx.ui.requestRender();
 						} else if (role === "default") {
-							const { switched } = await this.ctx.session.setModel(model, role, {
-								selector,
-								thinkingLevel: concreteThinking,
-								persist: true,
-								currentContextTokens,
-							});
-							if (isAuto) {
-								if (switched) {
-									this.ctx.session.setThinkingLevel(AUTO_THINKING, true);
-								} else {
+							if (action === "fallback") {
+								const selectorValue = formatModelSelectorValue(
+									selector ?? `${model.provider}/${model.id}`,
+									concreteThinking,
+								);
+								this.ctx.settings.setModelRole(
+									role,
+									appendModelRoleChainFallback(this.ctx.settings.getModelRole(role), selectorValue),
+								);
+								if (isAuto) {
 									this.ctx.settings.set("defaultThinkingLevel", AUTO_THINKING);
 								}
-							} else if (switched && concreteThinking && concreteThinking !== ThinkingLevel.Inherit) {
-								this.ctx.session.setThinkingLevel(concreteThinking);
+								this.ctx.showStatus(`Default fallback added: ${selector ?? model.id}`);
+							} else {
+								const { switched } = await this.ctx.session.setModel(model, role, {
+									selector,
+									thinkingLevel: concreteThinking,
+									persist: true,
+									preserveRoleChain: true,
+									currentContextTokens,
+								});
+								if (isAuto) {
+									if (switched) {
+										this.ctx.session.setThinkingLevel(AUTO_THINKING, true);
+									} else {
+										this.ctx.settings.set("defaultThinkingLevel", AUTO_THINKING);
+									}
+								} else if (switched && concreteThinking && concreteThinking !== ThinkingLevel.Inherit) {
+									this.ctx.session.setThinkingLevel(concreteThinking);
+								}
+								if (switched) {
+									this.ctx.statusLine.invalidate();
+									this.ctx.updateEditorBorderColor();
+								}
+								this.ctx.showStatus(`Default model: ${selector ?? model.id}`);
 							}
-							if (switched) {
-								this.ctx.statusLine.invalidate();
-								this.ctx.updateEditorBorderColor();
-							}
-							this.ctx.showStatus(`Default model: ${selector ?? model.id}`);
 							// Don't call done() - selector stays open for role assignment
 						} else {
 							// Other roles (smol, slow): just update settings, not current model
+							const selectorValue = formatModelSelectorValue(
+								selector ?? `${model.provider}/${model.id}`,
+								concreteThinking,
+							);
+							const existingRoleValue = this.ctx.settings.getModelRole(role);
 							this.ctx.settings.setModelRole(
 								role,
-								formatModelSelectorValue(selector ?? `${model.provider}/${model.id}`, concreteThinking),
+								action === "fallback"
+									? appendModelRoleChainFallback(existingRoleValue, selectorValue)
+									: setModelRoleChainPrimary(existingRoleValue, selectorValue),
 							);
 							if (isAuto) {
 								this.ctx.session.setThinkingLevel(AUTO_THINKING, true);

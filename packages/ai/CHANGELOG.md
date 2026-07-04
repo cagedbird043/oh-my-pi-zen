@@ -1,6 +1,10 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+
+- Fixed `subscription quota insufficient` / `额度不足` provider errors being classified as generic 403 failures instead of usage-limit errors, so model-role fallback chains can advance to the next provider.
+
 
 ## [16.3.12] - 2026-07-08
 
