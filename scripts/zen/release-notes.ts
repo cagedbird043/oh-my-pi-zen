@@ -47,12 +47,7 @@ export function extractChangelogSection(changelog: string, version: string): str
 }
 
 export function renderZenReleaseNotes(tag: ZenReleaseTag, packageNotes: readonly PackageReleaseNotes[]): string {
-	const lines = [
-		`# oh-my-pi-zen ${tag.version}`,
-		"",
-		`Based on [Oh My Pi ${tag.upstreamVersion}](${tag.upstreamReleaseUrl}).`,
-		"",
-	];
+	const lines = [`Based on [Oh My Pi ${tag.upstreamVersion}](${tag.upstreamReleaseUrl}).`, ""];
 	const notes = packageNotes.filter(note => note.body.trim().length > 0);
 	if (notes.length === 0) {
 		lines.push("No downstream changelog entries for this release.", "");
