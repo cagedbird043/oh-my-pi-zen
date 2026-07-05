@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ## [16.3.11] - 2026-07-06
+### Fixed
+
+- Fixed retry fallback treating relay `520` HTML error pages as model failures; these transient proxy responses now retry on the same model instead of switching providers.
+
+## [16.3.6-zen.3] - 2026-07-04
 
 ### Changed
 
