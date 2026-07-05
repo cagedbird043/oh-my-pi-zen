@@ -1,6 +1,17 @@
 # Changelog
 
 ## [Unreleased]
+
+### Fixed
+
+- Fixed plain-text 5xx provider status messages (including relay `520` HTML pages) being left as non-retryable numeric statuses instead of transient retryable errors.
+
+## [16.3.6-zen.3] - 2026-07-04
+
+### Added
+
+- Added `anysearch` registry provider definition and interactive credentials login support.
+
 ### Fixed
 
 - Fixed `subscription quota insufficient` / `额度不足` provider errors being classified as generic 403 failures instead of usage-limit errors, so model-role fallback chains can advance to the next provider.
