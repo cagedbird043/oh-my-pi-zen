@@ -13486,6 +13486,13 @@ export class AgentSession {
 		return stopType === "refusal" || stopType === "sensitive";
 	}
 
+	#isRelayHtmlTransient(message: AssistantMessage): boolean {
+		const errorMessage = message.errorMessage;
+		if (!errorMessage || !/<(?:!doctype|html)\b/i.test(errorMessage)) return false;
+		const status = message.errorStatus ?? AIError.status({ message: errorMessage });
+		return status !== undefined && status >= 500;
+	}
+
 	#getRetryFallbackChains(): RetryFallbackChains {
 		const configuredChains = this.settings.get("retry.fallbackChains");
 		if (!configuredChains || typeof configuredChains !== "object") return {};
@@ -14069,9 +14076,12 @@ export class AgentSession {
 		const allowModelFallback = options?.allowModelFallback !== false;
 		const currentSelector = this.model ? formatRetryFallbackSelector(this.model, this.thinkingLevel) : undefined;
 		if (!staleOpenAIResponsesReplayError && !switchedCredential && currentSelector) {
-			// A refusal chain stops at the retry budget: the exhausted-attempt
-			// last resort is for provider failures, not classifier decisions.
-			if (allowModelFallback && retrySettings.modelFallback && !(retryBudgetExhausted && classifierRefusal)) {
+			if (
+				!this.#isRelayHtmlTransient(message) &&
+				allowModelFallback &&
+				retrySettings.modelFallback &&
+				!(retryBudgetExhausted && classifierRefusal)
+			) {
 				if (!classifierRefusal) {
 					this.#noteRetryFallbackCooldown(currentSelector, parsedRetryAfterMs, errorMessage);
 				}
@@ -14081,7 +14091,12 @@ export class AgentSession {
 			// of the role-fallback setting: it's intrinsic to the Fast contract (speed
 			// best-effort, degrade to Standard on failure) and triggers on hard router
 			// errors the generic retry classifier would otherwise reject.
-			if (!switchedModel && allowModelFallback && options?.fireworksFastFallback) {
+			if (
+				!switchedModel &&
+				!this.#isRelayHtmlTransient(message) &&
+				allowModelFallback &&
+				options?.fireworksFastFallback
+			) {
 				switchedModel = await this.#tryFireworksFastFallback(currentSelector);
 			}
 			if (switchedModel) {

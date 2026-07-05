@@ -315,6 +315,9 @@ function classifyText(errorMessage: string | undefined, errorStatus: number | un
 		) {
 			kinds |= Flag.UsageLimit;
 		}
+		if (statusClean === 408 || statusClean === 429 || (statusClean !== undefined && statusClean >= 500)) {
+			kinds |= Flag.Transient;
+		}
 
 		if (isTimeoutText(errorMessage)) kinds |= Flag.Transient | Flag.Timeout;
 		else if (isTransientErrorText(errorMessage)) kinds |= Flag.Transient;

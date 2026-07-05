@@ -8,6 +8,15 @@
 
 - Added asynchronous `invalidateUsageCache` method to clear cached usage reports
 - Added support for cross-service usage cache invalidation between AuthStorage and AuthBroker
+### Fixed
+
+- Fixed plain-text 5xx provider status messages (including relay `520` HTML pages) being left as non-retryable numeric statuses instead of transient retryable errors.
+
+## [16.3.6-zen.3] - 2026-07-04
+
+### Added
+
+- Added `anysearch` registry provider definition and interactive credentials login support.
 
 ### Fixed
 
