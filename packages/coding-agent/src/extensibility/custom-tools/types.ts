@@ -111,11 +111,11 @@ export type CustomToolSessionEvent =
 	| {
 			reason: "auto_compaction_start";
 			trigger: "threshold" | "overflow" | "idle" | "incomplete";
-			action: "context-full" | "handoff" | "shake" | "snapcompact";
+			action: "context-full" | "handoff" | "shake" | "snapcompact" | "unicode-snapcompact";
 	  }
 	| {
 			reason: "auto_compaction_end";
-			action: "context-full" | "handoff" | "shake" | "snapcompact";
+			action: "context-full" | "handoff" | "shake" | "snapcompact" | "unicode-snapcompact";
 			result: CompactionResult | undefined;
 			aborted: boolean;
 			willRetry: boolean;
