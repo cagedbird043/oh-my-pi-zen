@@ -587,11 +587,11 @@ export type AgentSessionEvent =
 	| {
 			type: "auto_compaction_start";
 			reason: "threshold" | "overflow" | "idle" | "incomplete";
-			action: "context-full" | "handoff" | "shake" | "snapcompact";
+			action: "context-full" | "handoff" | "shake" | "snapcompact" | "unicode-snapcompact";
 	  }
 	| {
 			type: "auto_compaction_end";
-			action: "context-full" | "handoff" | "shake" | "snapcompact";
+			action: "context-full" | "handoff" | "shake" | "snapcompact" | "unicode-snapcompact";
 			result: CompactionResult | undefined;
 			aborted: boolean;
 			willRetry: boolean;
@@ -10170,31 +10170,34 @@ export class AgentSession {
 			// summary; a text-only model cannot read snapcompact frames.
 			const wantsSnapcompact =
 				compactionPrep.kind !== "fromHook" &&
-				effectiveSettings.strategy === "snapcompact" &&
+				(effectiveSettings.strategy === "snapcompact" || effectiveSettings.strategy === "unicode-snapcompact") &&
 				!customInstructions &&
 				!options?.internalGuidance;
-			// `/compact snapcompact` is an explicit no-LLM archive request: honor
-			// its contract by failing locally rather than silently shipping the
-			// transcript to a provider. The default-configured snapcompact
-			// strategy, in contrast, falls back to LLM compaction (mirroring the
-			// auto-compaction path) so a routine /compact still completes on a
-			// text-only model (issue #5064).
-			const explicitSnapcompact = compactMode?.name === "snapcompact";
+			// Explicit bitmap modes are no-LLM archive requests: fail locally rather
+			// than silently shipping the transcript to a provider. A configured bitmap
+			// strategy instead follows automatic compaction and may fall back to an LLM
+			// on text-only models (issue #5064).
+			const unicodeSnapcompact = effectiveSettings.strategy === "unicode-snapcompact";
+			const explicitSnapcompact =
+				compactMode?.name === "snapcompact" || compactMode?.name === "unicode-snapcompact";
 			let snapcompactReady = wantsSnapcompact;
 			const snapcompactShapeSetting = this.settings.get("snapcompact.shape");
+			const unicodeSnapcompactShapeSetting = this.settings.get("snapcompact.unicodeShape");
 			let snapcompactShape: snapcompact.Shape | undefined;
 			if (wantsSnapcompact && !this.model.input.includes("image")) {
 				if (explicitSnapcompact) {
 					this.emitNotice(
 						"warning",
-						`snapcompact needs a vision-capable model (${this.model.id} is text-only)`,
+						`${unicodeSnapcompact ? "unicode-snapcompact" : "snapcompact"} needs a vision-capable model (${this.model.id} is text-only)`,
 						"compaction",
 					);
-					throw new Error(`snapcompact cannot run locally: ${this.model.id} is text-only.`);
+					throw new Error(
+						`${unicodeSnapcompact ? "unicode-snapcompact" : "snapcompact"} cannot run locally: ${this.model.id} is text-only.`,
+					);
 				}
 				this.emitNotice(
 					"warning",
-					`snapcompact needs a vision-capable model (${this.model.id} is text-only); falling back to LLM compaction`,
+					`${unicodeSnapcompact ? "unicode-snapcompact" : "snapcompact"} needs a vision-capable model (${this.model.id} is text-only); falling back to LLM compaction`,
 					"compaction",
 				);
 				snapcompactReady = false;
@@ -10207,18 +10210,22 @@ export class AgentSession {
 					preparation.previousPreserveData,
 					preparation.previousSummary,
 				);
-				snapcompactShape = snapcompact.resolveShapeForText(probeText, this.model, snapcompactShapeSetting);
-				const renderScan = snapcompact.scanRenderability(probeText, { shape: snapcompactShape });
-				if (!renderScan.isSafe) {
-					const percent = (renderScan.unrenderableRatio * 100).toFixed(1);
-					this.emitNotice(
-						"warning",
-						`snapcompact disabled: unsupported characters for selected snapcompact font (${percent}%). No LLM fallback was attempted.`,
-						"compaction",
-					);
-					throw new Error(
-						`snapcompact cannot render this conversation locally: unsupported characters for selected snapcompact font (${percent}%).`,
-					);
+				snapcompactShape = unicodeSnapcompact
+					? snapcompact.resolveUnicodeSnapcompactShape(this.model, unicodeSnapcompactShapeSetting)
+					: snapcompact.resolveShapeForText(probeText, this.model, snapcompactShapeSetting);
+				if (!unicodeSnapcompact) {
+					const renderScan = snapcompact.scanRenderability(probeText, { shape: snapcompactShape });
+					if (!renderScan.isSafe) {
+						const percent = (renderScan.unrenderableRatio * 100).toFixed(1);
+						this.emitNotice(
+							"warning",
+							`snapcompact disabled: unsupported characters for selected snapcompact font (${percent}%). No LLM fallback was attempted.`,
+							"compaction",
+						);
+						throw new Error(
+							`snapcompact cannot render this conversation locally: unsupported characters for selected snapcompact font (${percent}%).`,
+						);
+					}
 				}
 			}
 
@@ -10235,17 +10242,19 @@ export class AgentSession {
 			// the snapcompact request locally rather than falling back to an LLM call.
 			let snapcompactResult: snapcompact.CompactionResult | undefined;
 			if (snapcompactReady) {
-				const maxFrames = this.#computeSnapcompactMaxFrames(preparation, effectiveSettings);
+				const maxFrames = this.#computeSnapcompactMaxFrames(preparation, effectiveSettings, snapcompactShape);
 				if (maxFrames < 1) {
 					logger.warn("Snapcompact skipped: kept history alone exceeds the context budget", {
 						model: this.model?.id,
 					});
 					this.emitNotice(
 						"warning",
-						"snapcompact: kept history alone exceeds the context budget. No LLM fallback was attempted.",
+						`${unicodeSnapcompact ? "unicode-snapcompact" : "snapcompact"}: kept history alone exceeds the context budget. No LLM fallback was attempted.`,
 						"compaction",
 					);
-					throw new Error("snapcompact cannot run locally: kept history alone exceeds the context budget.");
+					throw new Error(
+						`${unicodeSnapcompact ? "unicode-snapcompact" : "snapcompact"} cannot run locally: kept history alone exceeds the context budget.`,
+					);
 				} else {
 					const shape = snapcompactShape;
 					if (!shape) {
@@ -10254,7 +10263,8 @@ export class AgentSession {
 					snapcompactResult = await snapcompact.compact(preparation, {
 						convertToLlm,
 						model: this.model,
-						...(snapcompactShapeSetting === "auto" ? {} : { shape }),
+						shape,
+						...(unicodeSnapcompact ? { serializer: "unicode-event-stream" as const } : {}),
 						maxFrames,
 					});
 					const framePayloadBytes = this.#snapcompactFramePayloadBytes(snapcompactResult);
@@ -12655,7 +12665,11 @@ export class AgentSession {
 	 * ~402k frame-token projection always overflows any sub-1M-token window
 	 * (issue #3247).
 	 */
-	#computeSnapcompactMaxFrames(preparation: CompactionPreparation, settings: CompactionSettings): number {
+	#computeSnapcompactMaxFrames(
+		preparation: CompactionPreparation,
+		settings: CompactionSettings,
+		shape: snapcompact.Shape | undefined,
+	): number {
 		const ctxWindow = this.model?.contextWindow ?? 0;
 		if (ctxWindow <= 0) return Math.min(snapcompact.MAX_FRAMES_DEFAULT, snapcompact.maxFramesForDataBudget());
 		const reserve = effectiveReserveTokens(ctxWindow, settings);
@@ -12689,7 +12703,7 @@ export class AgentSession {
 		//   drift on denser content (e.g. dense JSON / tool-result blobs).
 		// - Summary template (intro + FILES section + grid notes) bills
 		//   ~2k tokens for typical sessions.
-		const shape = snapcompact.resolveShape(this.model, this.settings.get("snapcompact.shape"));
+		if (!shape) return 0;
 		const edgeCap = snapcompact.geometry(shape).capacity;
 		const textEdgeTokens = Math.ceil((2 * edgeCap * 1.15) / 4);
 		const SUMMARY_TEMPLATE_TOKENS = 2000;
@@ -12968,16 +12982,22 @@ export class AgentSession {
 		// "overflow" forces context-full because the input itself is broken — a handoff
 		// LLM call would hit the same overflow. "incomplete" is an output-side problem,
 		// so a handoff request on the existing context is still viable.
-		let action: "context-full" | "handoff" | "snapcompact" =
+		let action: "context-full" | "handoff" | "snapcompact" | "unicode-snapcompact" =
 			compactionSettings.strategy === "snapcompact"
 				? "snapcompact"
-				: compactionSettings.strategy === "handoff" && reason !== "overflow" && !suppressHandoff
-					? "handoff"
-					: "context-full";
-		if (action === "snapcompact" && this.model && !this.model.input.includes("image")) {
+				: compactionSettings.strategy === "unicode-snapcompact"
+					? "unicode-snapcompact"
+					: compactionSettings.strategy === "handoff" && reason !== "overflow" && !suppressHandoff
+						? "handoff"
+						: "context-full";
+		if (
+			(action === "snapcompact" || action === "unicode-snapcompact") &&
+			this.model &&
+			!this.model.input.includes("image")
+		) {
 			this.emitNotice(
 				"warning",
-				`snapcompact needs a vision-capable active model (${this.model.id} is text-only); using context-full auto-compaction instead.`,
+				`${action} needs a vision-capable active model (${this.model.id} is text-only); using context-full auto-compaction instead.`,
 				"compaction",
 			);
 			action = "context-full";
@@ -13153,7 +13173,8 @@ export class AgentSession {
 			// local-only contract (#3599): the user explicitly picked it.
 			let snapcompactResult: snapcompact.CompactionResult | undefined;
 			let snapcompactBlocker: string | undefined;
-			if (action === "snapcompact" && compactionPrep.kind !== "fromHook") {
+			if ((action === "snapcompact" || action === "unicode-snapcompact") && compactionPrep.kind !== "fromHook") {
+				const unicodeSnapcompact = action === "unicode-snapcompact";
 				const text = snapcompact.serializeConversation(
 					convertToLlm(preparation.messagesToSummarize.concat(preparation.turnPrefixMessages)),
 				);
@@ -13163,9 +13184,12 @@ export class AgentSession {
 					preparation.previousSummary,
 				);
 				const shapeSetting = this.settings.get("snapcompact.shape");
-				const shape = snapcompact.resolveShapeForText(probeText, this.model, shapeSetting);
-				const renderScan = snapcompact.scanRenderability(probeText, { shape });
-				if (!renderScan.isSafe) {
+				const unicodeShapeSetting = this.settings.get("snapcompact.unicodeShape");
+				const shape = unicodeSnapcompact
+					? snapcompact.resolveUnicodeSnapcompactShape(this.model, unicodeShapeSetting)
+					: snapcompact.resolveShapeForText(probeText, this.model, shapeSetting);
+				const renderScan = unicodeSnapcompact ? undefined : snapcompact.scanRenderability(probeText, { shape });
+				if (renderScan && !renderScan.isSafe) {
 					const percent = (renderScan.unrenderableRatio * 100).toFixed(1);
 					logger.warn("Snapcompact disabled: unsupported characters for selected snapcompact font", {
 						model: this.model?.id,
@@ -13173,18 +13197,18 @@ export class AgentSession {
 					});
 					snapcompactBlocker = `snapcompact disabled: unsupported characters for selected snapcompact font (${percent}%); using context-full auto-compaction instead.`;
 				} else {
-					const maxFrames = this.#computeSnapcompactMaxFrames(preparation, compactionSettings);
+					const maxFrames = this.#computeSnapcompactMaxFrames(preparation, compactionSettings, shape);
 					if (maxFrames < 1) {
 						logger.warn("Snapcompact skipped: kept history alone exceeds the context budget", {
 							model: this.model?.id,
 						});
-						snapcompactBlocker =
-							"snapcompact: kept history alone exceeds the context budget; using context-full auto-compaction instead.";
+						snapcompactBlocker = `${unicodeSnapcompact ? "unicode-snapcompact" : "snapcompact"}: kept history alone exceeds the context budget; using context-full auto-compaction instead.`;
 					} else {
 						snapcompactResult = await snapcompact.compact(preparation, {
 							convertToLlm,
 							model: this.model,
-							...(shapeSetting === "auto" ? {} : { shape }),
+							shape,
+							...(unicodeSnapcompact ? { serializer: "unicode-event-stream" as const } : {}),
 							maxFrames,
 						});
 						const framePayloadBytes = this.#snapcompactFramePayloadBytes(snapcompactResult);

@@ -13,6 +13,13 @@
 ### Fixed
 
 - Fixed `resolveShapeForText(..., "auto")` to correctly select the `silver16-bw` shape for CJK-heavy transcript text while preserving explicit shape overrides.
+### Added
+
+- Added Unicode Snapcompact zpix shape presets and a separate unicode shape resolver for CJK/Unicode bitmap archive rendering.
+
+### Fixed
+
+- Fixed Unicode Snapcompact advance-frame pagination, character accounting, Silver fallback rendering, and injected skill prompt compaction.
 
 ## [16.2.8] - 2026-06-30
 
