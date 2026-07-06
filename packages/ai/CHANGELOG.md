@@ -5,6 +5,7 @@
 ### Fixed
 
 - Fixed plain-text 5xx provider status messages (including relay `520` HTML pages) being left as non-retryable numeric statuses instead of transient retryable errors.
+- Fixed relay `insufficient_user_*` quota errors being classified as generic 403 auth failures instead of retryable usage-limit errors.
 
 ## [16.3.6-zen.3] - 2026-07-04
 
