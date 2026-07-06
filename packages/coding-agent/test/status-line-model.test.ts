@@ -67,6 +67,20 @@ describe("status line model segment advisor badge", () => {
 	});
 });
 
+
+describe("status line model segment provider prefix", () => {
+	it("shows provider prefix by default", () => {
+		const rendered = renderSegment("model", createModelContext(false));
+		expect(Bun.stripANSI(rendered.content)).toContain("codez/GPT-5.5");
+	});
+
+	it("omits provider prefix only when explicitly disabled", () => {
+		const rendered = renderSegment("model", createModelContext(false, { model: { showProvider: false } }));
+		const text = Bun.stripANSI(rendered.content);
+		expect(text).toContain("GPT-5.5");
+		expect(text).not.toContain("codez/GPT-5.5");
+	});
+});
 describe("status line model segment compact thinking level", () => {
 	function createThinkingContext(compactThinkingLevel: boolean): SegmentContext {
 		return {
