@@ -209,6 +209,15 @@ function decodePng(png: Uint8Array): DecodedPng {
 	return { width, height, colorType, pixels };
 }
 
+function bottomInkY(decoded: DecodedPng): number {
+	for (let y = decoded.height - 1; y >= 0; y--) {
+		for (let x = 0; x < decoded.width; x++) {
+			if (decoded.pixels[y * decoded.width + x] !== 0) return y;
+		}
+	}
+	return -1;
+}
+
 describe("normalize", () => {
 	it("collapses horizontal whitespace and folds non-Latin-1 to ASCII", () => {
 		expect(snapcompact.normalize("a \t b   c")).toBe("a b c");
@@ -367,6 +376,25 @@ describe("shape resolution", () => {
 		expect(snapcompact.isShapeVariantName("6x10-sent")).toBe(false);
 	});
 
+	it("keeps Unicode Snapcompact variants out of the legacy shape enum", () => {
+		expect(snapcompact.UNICODE_SHAPE_VARIANT_NAMES).toEqual(["zpix24-binary-2000", "zpix18-half-049-2000"]);
+		expect(snapcompact.isUnicodeShapeVariantName("zpix24-binary-2000")).toBe(true);
+		expect(snapcompact.isShapeVariantName("zpix24-binary-2000")).toBe(false);
+		expect(snapcompact.SHAPE_VARIANT_NAMES.includes("zpix24-binary-2000" as never)).toBe(false);
+
+		const quality = snapcompact.resolveUnicodeSnapcompactShape({ api: "google-generative-ai" });
+		expect(quality.font).toBe("zpix");
+		expect(quality.cellWidth).toBe(12);
+		expect(quality.coverageThreshold).toBe(0.49);
+		expect(quality.layout).toBe("advance");
+		expect(quality.margin).toBe(8);
+		expect(quality.frameTokenEstimate).toBe(1120);
+
+		const density = snapcompact.resolveUnicodeSnapcompactShape(undefined, "zpix18-half-049-2000");
+		expect(density.font).toBe("zpix");
+		expect(density.cellWidth).toBe(9);
+	});
+
 	it("recognizes complete shape overrides and rejects malformed ones", () => {
 		expect(snapcompact.isShape(snapcompact.SHAPES.openai)).toBe(true);
 		expect(snapcompact.isShape({ ...snapcompact.SHAPES.openai, cellWidth: 0 })).toBe(false);
@@ -517,6 +545,34 @@ describe("render", () => {
 		expect(png.readUInt32BE(20)).toBe(16);
 		expect(frame.cols).toBe(4);
 		expect(frame.chars).toBe(4);
+	});
+
+	it("renders Unicode Snapcompact zpix text as indexed binary PNG", async () => {
+		const zpix = snapcompact.resolveUnicodeSnapcompactShape(undefined);
+		const frame = await snapcompact.render("你好ABC", zpix, 128);
+		const png = Buffer.from(frame.data, "base64");
+		expect(png[25]).toBe(3);
+		expect(png.readUInt32BE(16)).toBe(128);
+		expect(png.readUInt32BE(20)).toBe(128);
+		expect(frame.chars).toBe(5);
+		expect(frame.cols).toBe(Math.floor((128 - 16) / 24));
+	});
+
+	it("reports actual advance-layout frame characters instead of grid capacity", async () => {
+		const zpix = snapcompact.resolveUnicodeSnapcompactShape(undefined);
+		const frame = await snapcompact.render("A".repeat(30), zpix, 128);
+		expect(frame.cols).toBe(4);
+		expect(frame.rows).toBe(4);
+		expect(frame.chars).toBe(30);
+	});
+
+	it("renders Silver fallback glyphs in Unicode Snapcompact advance frames", async () => {
+		const zpix = snapcompact.resolveUnicodeSnapcompactShape(undefined);
+		const frame = await snapcompact.render("안녕", zpix, 128);
+		const decoded = decodePng(Buffer.from(frame.data, "base64"));
+		const used = new Set(decoded.pixels);
+		expect(frame.chars).toBe(2);
+		expect(used.has(7)).toBe(true);
 	});
 
 	it("renders a Silver fallback glyph across two cells in a bitmap frame", async () => {
@@ -735,6 +791,65 @@ describe("serializeConversation", () => {
 	});
 
 	it("gives a thinking-only turn its own heading before the tool calls", () => {
+	it("serializes Unicode event streams as compact dialogue turns without thinking or tools", () => {
+		const out = snapcompact.serializeUnicodeEventStream([
+			createUserMessage("# Goal\n\n请保留这个事实。\n\n```ts\nconst noisy = true;\n```"),
+			createAssistantMessage([
+				{ type: "thinking", thinking: "hidden reasoning" },
+				{ type: "text", text: "- 结论：事实已经记录。" },
+				{ type: "toolCall", id: "c1", name: "read", arguments: { path: "a.ts" } },
+			]),
+			createToolResultMessage("tool output should not render"),
+		]);
+
+		expect(out).toBe("ARCHIVE EVENT STREAM\n｜ T001 U: Goal 请保留这个事实。\n｜ T002 A: 结论：事实已经记录。");
+		expect(out).not.toContain("hidden reasoning");
+		expect(out).not.toContain("tool output");
+		expect(out).not.toContain("toolCall");
+	});
+
+	it("compacts injected skill prompts in Unicode event streams", () => {
+		const skillPrompt = [
+			'[IMPORTANT: The user has invoked the "caveman" skill, indicating they want you to follow its instructions. The full skill content is loaded below.]',
+			"",
+			"Respond terse like smart caveman. All technical substance stay. Only fluff die.",
+			"",
+			"## Persistence",
+			"",
+			"ACTIVE EVERY RESPONSE.",
+			"",
+			"---",
+			"[Skill directory: /home/cagedbird/.omp/agent/skills/caveman] Resolve relative paths against that directory.",
+			"User: ultra",
+		].join("\n");
+		const out = snapcompact.serializeUnicodeEventStream([createUserMessage(skillPrompt)]);
+
+		expect(out).toBe("ARCHIVE EVENT STREAM\n｜ T001 U: SKILL caveman active level=ultra source=skill://caveman");
+		expect(out).not.toContain("Respond terse like smart caveman");
+		expect(out).not.toContain("Skill directory");
+		expect(out).not.toContain("/home/cagedbird");
+	});
+
+	it("keeps internal URI anchors while trimming verbose unicode archive lines", () => {
+		const out = snapcompact.serializeUnicodeEventStream([
+			createAssistantMessage([
+				{
+					type: "text",
+					text:
+						'[raw output: artifact://abc123]\n[notes](local://unicode-plan.md) and artifact://abc123 stay useful\n{"type":"huge","payload":"' +
+						"x".repeat(600) +
+						'","source":"artifact://huge456"}',
+				},
+			]),
+		]);
+
+		expect(out).toContain("artifact://abc123");
+		expect(out).toContain("local://unicode-plan.md");
+		expect(out).toContain("artifact://huge456");
+		expect(out).not.toContain("payload");
+	});
+
+	it("gives a thinking-only turn its own assistant heading before the tool calls", () => {
 		const out = snapcompact.serializeConversation([
 			createAssistantMessage([
 				{ type: "thinking", thinking: "plan first" },
@@ -938,6 +1053,38 @@ describe("compact", () => {
 		expect(archive).toBeDefined();
 		expect(archive?.frames.length).toBeGreaterThan(0);
 		expect(archive?.frames.every(frame => frame.font === "silver")).toBe(true);
+	});
+
+	it("paginates Unicode Snapcompact compaction with advance metrics", async () => {
+		const zpix = snapcompact.resolveUnicodeSnapcompactShape(undefined);
+		const result = await snapcompact.compact(
+			makePreparation({ messagesToSummarize: [createUserMessage("ABCDEFGHIJKLMNOPQRSTUVWXYZ".repeat(120))] }),
+			{ shape: zpix, frameSize: 128, maxFrames: 10 },
+		);
+		const archive = snapcompact.getPreservedArchive(result.preserveData);
+		expect(archive).toBeDefined();
+		expect(archive?.frames.length).toBeGreaterThan(1);
+		expect(archive?.frames.every(frame => frame.font === "zpix")).toBe(true);
+		const nonTailBottoms =
+			archive?.frames.slice(0, -1).map(frame => bottomInkY(decodePng(Buffer.from(frame.data, "base64")))) ?? [];
+		expect(Math.min(...nonTailBottoms)).toBeGreaterThan(80);
+	});
+
+	it("renders the full Unicode event stream instead of keeping text-only edges", async () => {
+		const zpix = snapcompact.resolveUnicodeSnapcompactShape(undefined);
+		const result = await snapcompact.compact(
+			makePreparation({
+				messagesToSummarize: [createUserMessage(`BEGINNING SENTINEL. ${"A compactable Unicode turn. ".repeat(1)}`)],
+			}),
+			{ shape: zpix, serializer: "unicode-event-stream", frameSize: 128, maxFrames: 10 },
+		);
+		const archive = snapcompact.getPreservedArchive(result.preserveData);
+		expect(archive?.frames.length).toBeGreaterThan(0);
+		expect(archive?.textHead).toBeUndefined();
+		expect(archive?.textTail).toBeUndefined();
+		expect(archive?.text).toStartWith("ARCHIVE EVENT STREAM");
+		expect(archive?.text).toContain("BEGINNING SENTINEL");
+		expect(archive?.totalChars).toBe(archive?.text?.length);
 	});
 
 	it("re-renders later compactions from the kept source text", async () => {
