@@ -12,7 +12,7 @@
  */
 
 /** Subcommand selecting a one-off compaction mode for manual `/compact`. */
-export type CompactMode = "soft" | "remote" | "snapcompact";
+export type CompactMode = "soft" | "remote" | "snapcompact" | "unicode-snapcompact";
 
 /**
  * Per-invocation overrides merged over the configured `compaction.*` settings.
@@ -20,7 +20,7 @@ export type CompactMode = "soft" | "remote" | "snapcompact";
  * assignable to the full `CompactionSettings`.
  */
 export interface CompactionOverride {
-	strategy?: "context-full" | "snapcompact";
+	strategy?: "context-full" | "snapcompact" | "unicode-snapcompact";
 	remoteEnabled?: boolean;
 }
 
@@ -60,6 +60,12 @@ export const COMPACT_MODES: readonly CompactModeDef[] = [
 		name: "snapcompact",
 		description: "Archive history onto dense bitmap images the model reads back (no LLM call)",
 		overrides: { strategy: "snapcompact" },
+		rejectsFocus: true,
+	},
+	{
+		name: "unicode-snapcompact",
+		description: "Archive Unicode/CJK history onto zpix bitmap images the model reads back (no LLM call)",
+		overrides: { strategy: "unicode-snapcompact" },
 		rejectsFocus: true,
 	},
 ];

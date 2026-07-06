@@ -10,6 +10,7 @@ import { AgentSession } from "@oh-my-pi/pi-coding-agent/session/agent-session";
 import { AuthStorage } from "@oh-my-pi/pi-coding-agent/session/auth-storage";
 import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manager";
 import { TempDir } from "@oh-my-pi/pi-utils";
+import * as snapcompact from "@oh-my-pi/snapcompact";
 
 const UNRENDERABLE_SNAPCOMPACT_TEXT = "\uE000\uE001\uE002\uE003\uE004\uE005\uE006\uE007\uE008\uE009";
 
@@ -24,6 +25,8 @@ interface Harness {
 interface HarnessOptions {
 	activeModel: { provider: GeneratedProvider; id: string };
 	seedMessages?: Message[];
+	strategy?: "snapcompact" | "unicode-snapcompact";
+	unicodeShape?: snapcompact.UnicodeShapeVariantName | "auto";
 }
 
 async function createHarness(tempDir: TempDir, authStorage: AuthStorage, options: HarnessOptions): Promise<Harness> {
@@ -42,12 +45,13 @@ async function createHarness(tempDir: TempDir, authStorage: AuthStorage, options
 	if (!firstKeptEntryId) throw new Error("Expected seeded branch entry");
 
 	const settings = Settings.isolated({
-		"compaction.strategy": "snapcompact",
+		"compaction.strategy": options.strategy ?? "snapcompact",
 		// Force a 1-token recent window so the post-turn cut always splits off the
 		// last turn and summarizes the seeded unrenderable history. With the default
 		// 20k window the cut keeps both tiny messages, leaving nothing for
 		// snapcompact's renderability preflight to scan.
 		"compaction.keepRecentTokens": 1,
+		...(options.unicodeShape ? { "snapcompact.unicodeShape": options.unicodeShape } : {}),
 		modelRoles: { vision: "aimlapi/claude-sonnet-4-5-20250929" },
 	});
 	const session = new AgentSession({
@@ -176,5 +180,81 @@ describe("AgentSession auto-snapcompact local-blocker fallback", () => {
 			type: "compaction",
 			summary: "compacted",
 		});
+	});
+
+	it("keeps unicode-snapcompact on image archive path for high Unicode transcripts", async () => {
+		tempDir = TempDir.createSync("@pi-unicode-snapcompact-non-ascii-");
+		authStorage = await AuthStorage.create(path.join(tempDir.path(), "auth.db"));
+		const harness = await createHarness(tempDir, authStorage, {
+			activeModel: { provider: "aimlapi", id: "claude-sonnet-4-5-20250929" },
+			strategy: "unicode-snapcompact",
+			seedMessages: [
+				{
+					role: "user",
+					content: UNRENDERABLE_SNAPCOMPACT_TEXT.repeat(10),
+					timestamp: Date.now(),
+				},
+			],
+		});
+		const firstKeptEntryId = harness.sessionManager.getBranch()[0]?.id;
+		if (!firstKeptEntryId) throw new Error("Expected seeded branch entry");
+		const snapcompactSpy = vi.spyOn(snapcompact, "compact").mockResolvedValue({
+			summary: "unicode compacted",
+			shortSummary: undefined,
+			firstKeptEntryId,
+			tokensBefore: 123,
+			details: { readFiles: [], modifiedFiles: [] },
+			preserveData: {
+				snapcompact: { frames: [], totalChars: 0, truncatedChars: 0 },
+			},
+		});
+		session = harness.session;
+		harness.triggerThreshold();
+
+		const result = await harness.awaitCompactionEnd();
+		expect(result.action).toBe("unicode-snapcompact");
+		expect(result.errorMessage).toBeUndefined();
+		expect(snapcompactSpy).toHaveBeenCalled();
+		expect(snapcompactSpy.mock.calls[0]?.[1]?.serializer).toBe("unicode-event-stream");
+		expect(harness.notices.some(message => message.includes("high non-ASCII rate detected"))).toBe(false);
+	});
+
+	it("passes the configured unicode snapcompact shape preset", async () => {
+		tempDir = TempDir.createSync("@pi-unicode-snapcompact-shape-");
+		authStorage = await AuthStorage.create(path.join(tempDir.path(), "auth.db"));
+		const harness = await createHarness(tempDir, authStorage, {
+			activeModel: { provider: "aimlapi", id: "claude-sonnet-4-5-20250929" },
+			strategy: "unicode-snapcompact",
+			unicodeShape: "zpix18-half-049-2000",
+			seedMessages: [
+				{
+					role: "user",
+					content: "需要压缩的中文上下文".repeat(100),
+					timestamp: Date.now(),
+				},
+			],
+		});
+		const firstKeptEntryId = harness.sessionManager.getBranch()[0]?.id;
+		if (!firstKeptEntryId) throw new Error("Expected seeded branch entry");
+		const snapcompactSpy = vi.spyOn(snapcompact, "compact").mockResolvedValue({
+			summary: "unicode compacted",
+			shortSummary: undefined,
+			firstKeptEntryId,
+			tokensBefore: 123,
+			details: { readFiles: [], modifiedFiles: [] },
+			preserveData: {
+				snapcompact: { frames: [], totalChars: 0, truncatedChars: 0 },
+			},
+		});
+		session = harness.session;
+		harness.triggerThreshold();
+
+		const result = await harness.awaitCompactionEnd();
+		expect(result.action).toBe("unicode-snapcompact");
+		expect(result.errorMessage).toBeUndefined();
+		const shape = snapcompactSpy.mock.calls[0]?.[1]?.shape;
+		expect(shape?.font).toBe("zpix");
+		expect(shape?.fontSize).toBe(18);
+		expect(shape?.coverageThreshold).toBe(0.49);
 	});
 });
