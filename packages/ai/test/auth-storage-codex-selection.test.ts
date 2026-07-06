@@ -2137,8 +2137,11 @@ describe("AuthStorage claude oauth ranking", () => {
 			);
 		}
 
-		const counts = await countApiKeySelections(authStorage, "anthropic", "weighted-claude-equal", 200);
-		expect(Math.abs(countFor(counts, "api-acct-a") - countFor(counts, "api-acct-b"))).toBeLessThanOrEqual(25);
+		const samples = 2000;
+		const counts = await countApiKeySelections(authStorage, "anthropic", "weighted-claude-equal", samples);
+		expect(Math.abs(countFor(counts, "api-acct-a") - countFor(counts, "api-acct-b"))).toBeLessThanOrEqual(
+			samples * 0.075,
+		);
 	});
 
 	test("caps the strongest priority bucket at about 2x baseline weight", async () => {
