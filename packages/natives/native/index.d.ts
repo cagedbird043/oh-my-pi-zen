@@ -1612,16 +1612,6 @@ export interface PtyStartOptions {
 export declare function readImageFromClipboard(): Promise<ClipboardImage | undefined | null>
 
 /**
- * Render one snapcompact frame on a libuv worker: print pre-normalized text
- * onto a `size`-wide bitmap and encode it as PNG.
- *
- * The bitmap height hugs the rows the text actually occupies
- * (`usedRows * lineRepeat * cellHeight`), so a partially filled frame never
- * pays for blank padding rows. The glyph grid holds `floor(size/cellWidth) *
- * floor(size/cellHeight/lineRepeat)` characters; input beyond that is ignored.
- * Native-cell bitmap-font shapes encode as indexed PNG; stretched bitmap-font
- * shapes (target cell != font cell) encode as RGB. TrueType shapes encode RGB
- * directly from grayscale coverage.
  * `stretch: false` pins bitmap fonts to the indexed path, printing
  * natural-size glyphs on the requested cell box; `columns: 2` flows
  * pre-wrapped newline-separated lines down two newspaper columns.
@@ -1766,6 +1756,8 @@ export interface SliceResult {
  */
 export declare function sliceWithWidth(line: string, startCol: number, length: number, strict: boolean | undefined | null, tabWidth: number): SliceResult
 
+export declare function snapcompactAdvanceFrameCounts(text: string, options: SnapcompactRenderOptions): Array<number>
+
 /** Shape options for one snapcompact frame. */
 export interface SnapcompactRenderOptions {
   /**
@@ -1776,7 +1768,7 @@ export interface SnapcompactRenderOptions {
   size: number
   /**
    * Bundled font: `"5x8"`, `"6x12"`, `"8x13"` (X.org BDF), `"8x8"`
-   * (unscii-8), or `"silver"` (embedded TrueType). Default `"5x8"`.
+   * (unscii-8), `"silver"` or `"zpix"` (embedded TrueType). Default `"5x8"`.
    */
   font?: string
   /**
@@ -1809,6 +1801,19 @@ export interface SnapcompactRenderOptions {
    * columns of pre-wrapped newline-separated lines.
    */
   columns?: number
+  /** Coverage cutoff for binary TrueType rasterization. Default 0.49. */
+  coverageThreshold?: number
+  /**
+   * Layout engine: `"grid"` (default) or `"advance"` for zpix
+   * experiment-style wrapping.
+   */
+  layout?: string
+  /** Font size for advance-layout TrueType rendering. */
+  fontSize?: number
+  /** Extra line gap in pixels for advance-layout rendering. */
+  lineSpacingPx?: number
+  /** Safe inset from every frame edge for advance-layout rendering. Default 0. */
+  margin?: number
 }
 
 /**

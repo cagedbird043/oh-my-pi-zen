@@ -330,6 +330,7 @@ import { TtsrCoordinator, type TtsrCoordinatorHost } from "./ttsr-coordinator";
 
 const PLAN_MODE_REMINDER_MAX = 3;
 
+
 /** Internal marker for hook messages queued through the agent loop */
 // ============================================================================
 // Constants
@@ -6288,6 +6289,7 @@ export class AgentSession {
 		this.settings.set("interruptMode", mode);
 	}
 
+
 	/**
 	 * Cancel in-progress branch summarization.
 	 */
@@ -6652,6 +6654,7 @@ export class AgentSession {
 			}
 		}
 	}
+
 
 	// =========================================================================
 	// Auto-Retry
