@@ -56,6 +56,10 @@
 ### Changed
 
 - Improved session title generation reliability by moving to marker-based parsing for all models
+### Added
+
+- Added a `unicode-snapcompact` compaction strategy and `/compact unicode-snapcompact` mode that archive Unicode/CJK history through zpix-backed Snapcompact frames while leaving the legacy `snapcompact` strategy unchanged.
+- Added `snapcompact.unicodeShape` to select Unicode Snapcompact's zpix quality or density preset independently from the legacy `snapcompact.shape` setting.
 
 ### Fixed
 
