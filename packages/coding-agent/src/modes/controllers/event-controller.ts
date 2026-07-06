@@ -1190,7 +1190,9 @@ export class EventController {
 					? "Auto-shake"
 					: event.action === "snapcompact"
 						? "Auto-snapcompact"
-						: "Auto context-full maintenance";
+						: event.action === "unicode-snapcompact"
+							? "Auto Unicode Snapcompact"
+							: "Auto context-full maintenance";
 		this.ctx.autoCompactionLoader = new Loader(
 			this.ctx.ui,
 			spinner => theme.fg("accent", spinner),
@@ -1214,6 +1216,7 @@ export class EventController {
 		const isHandoffAction = event.action === "handoff";
 		const isShakeAction = event.action === "shake";
 		const isSnapcompactAction = event.action === "snapcompact";
+		const isUnicodeSnapcompactAction = event.action === "unicode-snapcompact";
 		if (event.aborted) {
 			this.ctx.showStatus(
 				isHandoffAction
@@ -1222,7 +1225,9 @@ export class EventController {
 						? "Auto-shake cancelled"
 						: isSnapcompactAction
 							? "Auto-snapcompact cancelled"
-							: "Auto context-full maintenance cancelled",
+							: isUnicodeSnapcompactAction
+								? "Auto Unicode Snapcompact cancelled"
+								: "Auto context-full maintenance cancelled",
 			);
 		} else if (isShakeAction) {
 			// Shake produces no CompactionResult; rebuild on success, suppress benign skips.
@@ -1263,6 +1268,8 @@ export class EventController {
 			// to compact yet. Not a failure — suppress the warning.
 		} else if (isSnapcompactAction) {
 			this.ctx.showWarning("Auto-snapcompact maintenance failed; continuing without maintenance");
+		} else if (isUnicodeSnapcompactAction) {
+			this.ctx.showWarning("Auto Unicode Snapcompact maintenance failed; continuing without maintenance");
 		} else {
 			this.ctx.showWarning("Auto context-full maintenance failed; continuing without maintenance");
 		}
