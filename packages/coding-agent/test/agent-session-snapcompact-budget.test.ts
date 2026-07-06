@@ -242,6 +242,32 @@ describe("AgentSession snapcompact frame-budget sizing", () => {
 		expect(opts?.maxFrames).toBe(1);
 	});
 
+	it("passes the resolved zpix shape for manual unicode-snapcompact", async () => {
+		const branchEntries = sessionManager.getBranch();
+		const lastEntry = branchEntries[branchEntries.length - 1];
+		if (!lastEntry?.id) throw new Error("Expected branch entry with id");
+
+		const compactSpy = vi.spyOn(snapcompact, "compact").mockResolvedValue({
+			summary: "stubbed unicode snapcompact",
+			shortSummary: "stub",
+			firstKeptEntryId: lastEntry.id,
+			tokensBefore: 100_000,
+			details: { readFiles: [], modifiedFiles: [] },
+			preserveData: {
+				snapcompact: { frames: [], totalChars: 0, truncatedChars: 0 },
+			},
+		});
+
+		await session.compact(undefined, { mode: "unicode-snapcompact" });
+
+		expect(compactSpy).toHaveBeenCalledTimes(1);
+		const opts = compactSpy.mock.calls[0]?.[1];
+		expect(opts?.shape?.font).toBe("zpix");
+		expect(opts?.shape?.coverageThreshold).toBe(0.49);
+		expect(opts?.serializer).toBe("unicode-event-stream");
+		expect(opts?.maxFrames).toBeGreaterThan(0);
+	});
+
 	it("applies the frame byte cap when the model context window is unknown", async () => {
 		const model = session.model;
 		if (!model) throw new Error("Expected model");
