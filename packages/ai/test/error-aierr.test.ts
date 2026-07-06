@@ -49,6 +49,14 @@ describe("AIError.classify — structural provider errors", () => {
 		expect(AIError.is(id, AIError.Flag.UsageLimit)).toBe(true);
 	});
 
+	it("maps relay insufficient_user quota errors to retryable usage limits", () => {
+		const message =
+			"Error: 403 permission_error request failed (type=permission_error param=insufficient_user_balance)";
+		const id = AIError.classifyMessage({ errorMessage: message, errorStatus: 403 });
+		expect(AIError.is(id, AIError.Flag.UsageLimit)).toBe(true);
+		expect(AIError.retriable(id)).toBe(true);
+	});
+
 	it("recognizes Codex transport errors by name without importing the provider", () => {
 		const transport = Object.assign(new Error("websocket closed"), { name: "CodexWebSocketTransportError" });
 		expect(AIError.is(AIError.classify(transport), AIError.Flag.Transient)).toBe(true);
