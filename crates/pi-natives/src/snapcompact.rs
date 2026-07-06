@@ -8,7 +8,7 @@
 //! - `8x8`  — unscii-8 hex font (Latin-1 subset), the square cell that won the
 //!   snapcompact `SQuAD` evals.
 //! - `6x12` / `8x13` — X.org misc BDF fonts (higher-density eval winners).
-//! - `silver` — bundled TrueType font for CJK and other non-Latin text.
+//! - `silver` / `zpix` — bundled TrueType fonts for CJK and other Unicode text.
 //!
 //! Shape controls, all eval-validated in `packages/snapcompact`:
 //!
@@ -92,7 +92,9 @@ static FONT_6X12: LazyLock<Font> =
 static FONT_8X13: LazyLock<Font> =
 	LazyLock::new(|| parse_bdf(include_str!("fonts/8x13.bdf"), 8, 13));
 static FONT_SILVER: LazyLock<TtfFont> =
-	LazyLock::new(|| parse_ttf(include_bytes!("fonts/Silver.ttf"), 16.0, 16, 16));
+	LazyLock::new(|| parse_ttf(include_bytes!("fonts/Silver.ttf"), 16.0, 16, 16, "Silver.ttf"));
+static FONT_ZPIX: LazyLock<TtfFont> =
+	LazyLock::new(|| parse_ttf(include_bytes!("fonts/zpix.ttf"), 24.0, 12, 26, "zpix.ttf"));
 
 struct Glyph {
 	/// Glyph width in pixels (≤ 8 for the bundled fonts).
@@ -191,9 +193,9 @@ fn parse_hex(text: &str) -> Font {
 	Font { glyphs, ascent: 7, cell_w: 8, cell_h: 8 }
 }
 
-fn parse_ttf(data: &'static [u8], px: f32, cell_w: usize, cell_h: usize) -> TtfFont {
-	let face =
-		TtfFace::from_bytes(data, FontSettings::default()).expect("bundled Silver.ttf must parse");
+fn parse_ttf(data: &'static [u8], px: f32, cell_w: usize, cell_h: usize, name: &str) -> TtfFont {
+	let face = TtfFace::from_bytes(data, FontSettings::default())
+		.unwrap_or_else(|err| panic!("bundled {name} must parse: {err}"));
 	let supported = face.chars().keys().copied().collect();
 	let ascent = face
 		.horizontal_line_metrics(px)
@@ -239,6 +241,7 @@ fn resolve_font(name: &str) -> Option<RenderFont<'static>> {
 		"6x12" => Some(RenderFont::Bitmap(&FONT_6X12)),
 		"8x13" => Some(RenderFont::Bitmap(&FONT_8X13)),
 		"silver" => Some(RenderFont::Ttf(&FONT_SILVER)),
+		"zpix" => Some(RenderFont::Ttf(&FONT_ZPIX)),
 		_ => None,
 	}
 }
@@ -563,6 +566,37 @@ fn blit_ttf_glyph_indexed(
 	}
 }
 
+fn blit_ttf_glyph_binary(
+	pixels: &mut [u8],
+	width: usize,
+	height: usize,
+	glyph: &RasterizedGlyph,
+	left: i32,
+	top: i32,
+	ink: u8,
+	threshold: u8,
+) {
+	if glyph.metrics.width == 0 || glyph.metrics.height == 0 {
+		return;
+	}
+	for y in 0..glyph.metrics.height {
+		let dst_y = top + y as i32;
+		if dst_y < 0 || dst_y >= height as i32 {
+			continue;
+		}
+		let row_base = dst_y as usize * width;
+		for x in 0..glyph.metrics.width {
+			if glyph.bitmap[y * glyph.metrics.width + x] <= threshold {
+				continue;
+			}
+			let dst_x = left + x as i32;
+			if dst_x >= 0 && dst_x < width as i32 {
+				pixels[row_base + dst_x as usize] = ink;
+			}
+		}
+	}
+}
+
 fn ttf_glyph_origin(x_origin: usize, cell_w: usize, metrics: &Metrics) -> i32 {
 	let advance = metrics.advance_width.ceil() as i32;
 	let pad = (cell_w as i32 - advance).max(0) / 2;
@@ -742,6 +776,176 @@ fn render_ttf_rgb(
 		}
 	}
 	pixels
+}
+
+fn render_ttf_binary(
+	text: &str,
+	width: usize,
+	height: usize,
+	font: &TtfFont,
+	grid: &Grid,
+	black_ink: bool,
+	coverage_threshold: u8,
+) -> Vec<u8> {
+	let mut pixels = vec![0u8; width * height];
+	let capacity = grid.cols * grid.rows;
+	if capacity == 0 {
+		return pixels;
+	}
+	fill_repeat_bands(&mut pixels, width, height, grid);
+	let narrow_px = ttf_pixel_size(font, grid);
+	let wide_px = ttf_wide_pixel_size(font, grid);
+	let narrow_ascent = ttf_ascent(font, narrow_px);
+	let wide_ascent = ttf_ascent(font, wide_px);
+	let codes: Vec<char> = text.chars().collect();
+	let mut cache = HashMap::new();
+	let mut sentence = 0usize;
+	let mut dim = false;
+	let mut cursor = 0usize;
+	for i in 0..codes.len() {
+		if cursor >= capacity {
+			break;
+		}
+		let ch = codes[i];
+		let code = ch as u32;
+		match code {
+			DIM_ON => {
+				dim = true;
+				continue;
+			},
+			DIM_OFF => {
+				dim = false;
+				continue;
+			},
+			_ => {},
+		}
+		let ink = if dim {
+			INK_DIM
+		} else if black_ink {
+			INK_BLACK
+		} else {
+			(1 + sentence % INK_COLORS) as u8
+		};
+		if matches!(code, 0x2e | 0x21 | 0x3f)
+			&& matches!(codes.get(i + 1).map(|next| *next as u32), Some(0x20 | FULL_BLOCK))
+		{
+			sentence += 1;
+		}
+		let Some((at, units, next)) = place_cell(cursor, grid.cols, code, true) else {
+			continue;
+		};
+		cursor = next;
+		if at >= capacity {
+			break;
+		}
+		let row = at / grid.cols;
+		let col = at - row * grid.cols;
+		if code == FULL_BLOCK {
+			fill_cell(&mut pixels, width, height, grid, col * grid.cell_w, row, INK_BLACK);
+			continue;
+		}
+		let px = if units == 2 { wide_px } else { narrow_px };
+		let Some(glyph) = cached_ttf_glyph(&mut cache, font, ch, px) else {
+			continue;
+		};
+		let span = units * grid.cell_w;
+		let left = ttf_glyph_origin(col * grid.cell_w, span, &glyph.metrics);
+		let ascent = if units == 2 {
+			wide_ascent
+		} else {
+			narrow_ascent
+		};
+		for copy in 0..grid.repeat {
+			let cell_top = (row * grid.repeat + copy) * grid.cell_h;
+			let top = ttf_glyph_top(cell_top, ascent, &glyph.metrics);
+			blit_ttf_glyph_binary(
+				&mut pixels,
+				width,
+				height,
+				glyph,
+				left,
+				top,
+				ink,
+				coverage_threshold,
+			);
+		}
+	}
+	pixels
+}
+
+fn render_ttf_advance_binary(
+	text: &str,
+	width: usize,
+	font: &TtfFont,
+	black_ink: bool,
+	coverage_threshold: u8,
+	font_size: f32,
+	line_spacing: f32,
+	margin: usize,
+) -> (Vec<u8>, usize) {
+	let mut pixels = vec![0u8; width * width];
+	let line_metrics = font.face.horizontal_line_metrics(font_size);
+	let ascent =
+		line_metrics.map_or_else(|| font.ascent * font_size / font.px, |metrics| metrics.ascent);
+	let descent = line_metrics.map_or(0.0, |metrics| metrics.descent);
+	let line_height = (ascent - descent).ceil() + line_spacing;
+	let margin = margin.min(width.saturating_sub(1));
+	let right_limit = (width.saturating_sub(margin)) as f32;
+	let bottom_limit = (width.saturating_sub(margin)) as f32;
+	let mut current_x = margin as f32;
+	let mut baseline = margin as f32 + ascent;
+	let mut cache = HashMap::new();
+	let mut fallback_cache = HashMap::new();
+	let mut sentence = 0usize;
+	let mut dim = false;
+	let codes: Vec<char> = text.chars().collect();
+	for i in 0..codes.len() {
+		let ch = codes[i];
+		let code = ch as u32;
+		match code {
+			DIM_ON => {
+				dim = true;
+				continue;
+			},
+			DIM_OFF => {
+				dim = false;
+				continue;
+			},
+			_ => {},
+		}
+		let glyph = if let Some(glyph) = cached_ttf_glyph(&mut cache, font, ch, font_size) {
+			glyph
+		} else if let Some(glyph) = cached_ttf_glyph(&mut fallback_cache, &FONT_SILVER, ch, font_size)
+		{
+			glyph
+		} else {
+			continue;
+		};
+		if current_x > margin as f32 && current_x + glyph.metrics.advance_width > right_limit {
+			current_x = margin as f32;
+			baseline += line_height;
+		}
+		if baseline + descent + margin as f32 > bottom_limit {
+			break;
+		}
+		let ink = if dim {
+			INK_DIM
+		} else if black_ink {
+			INK_BLACK
+		} else {
+			(1 + sentence % INK_COLORS) as u8
+		};
+		if matches!(code, 0x2e | 0x21 | 0x3f)
+			&& matches!(codes.get(i + 1).map(|next| *next as u32), Some(0x20 | FULL_BLOCK))
+		{
+			sentence += 1;
+		}
+		let left = (current_x + glyph.metrics.xmin as f32).round() as i32;
+		let top = (baseline - glyph.metrics.height as f32 - glyph.metrics.ymin as f32).round() as i32;
+		blit_ttf_glyph_binary(&mut pixels, width, width, glyph, left, top, ink, coverage_threshold);
+		current_x += glyph.metrics.advance_width;
+	}
+	(pixels, width)
 }
 
 /// Character cells between the two doc columns (eval `exp14` layout).
@@ -1130,30 +1334,41 @@ pub struct SnapcompactRenderOptions {
 	/// Frame width in pixels; also bounds the grid rows
 	/// (`floor(size/cellHeight/lineRepeat)`). Output height hugs the rows the
 	/// text actually uses instead of padding to a square.
-	pub size:        u32,
+	pub size:               u32,
 	/// Bundled font: `"5x8"`, `"6x12"`, `"8x13"` (X.org BDF), `"8x8"`
-	/// (unscii-8), or `"silver"` (embedded TrueType). Default `"5x8"`.
-	pub font:        Option<String>,
+	/// (unscii-8), `"silver"` or `"zpix"` (embedded TrueType). Default `"5x8"`.
+	pub font:               Option<String>,
 	/// Target cell advance in pixels. Differing from the font's natural cell
 	/// triggers the Lanczos stretch path. Default: font natural width.
-	pub cell_width:  Option<u32>,
+	pub cell_width:         Option<u32>,
 	/// Target cell pitch in pixels. Default: font natural height.
-	pub cell_height: Option<u32>,
+	pub cell_height:        Option<u32>,
 	/// Ink variant: `"sent"` (six-hue sentence cycling) or `"bw"` (black).
 	/// Default `"sent"`.
-	pub variant:     Option<String>,
+	pub variant:            Option<String>,
 	/// Print each text line this many times; copies after the first sit on a
 	/// pale highlight band. Default 1.
-	pub line_repeat: Option<u32>,
+	pub line_repeat:        Option<u32>,
 	/// Stretch behavior. Unset: auto — Lanczos-stretch whenever the target
 	/// cell differs from the font's natural cell. `false`: never stretch —
 	/// render indexed with glyphs at natural size on the requested cell box
 	/// (e.g. 8x13 glyphs on an 8x16 pitch, the "8on16" shapes). `true`: force
 	/// the stretch path (identical to auto; natural cells render indexed).
-	pub stretch:     Option<bool>,
+	pub stretch:            Option<bool>,
 	/// Layout columns: `1` (default) row-major grid; `2` two newspaper "doc"
 	/// columns of pre-wrapped newline-separated lines.
-	pub columns:     Option<u32>,
+	pub columns:            Option<u32>,
+	/// Coverage cutoff for binary TrueType rasterization. Default 0.49.
+	pub coverage_threshold: Option<f64>,
+	/// Layout engine: `"grid"` (default) or `"advance"` for zpix
+	/// experiment-style wrapping.
+	pub layout:             Option<String>,
+	/// Font size for advance-layout TrueType rendering.
+	pub font_size:          Option<f64>,
+	/// Extra line gap in pixels for advance-layout rendering.
+	pub line_spacing_px:    Option<f64>,
+	/// Safe inset from every frame edge for advance-layout rendering. Default 0.
+	pub margin:             Option<u32>,
 }
 
 /// Return the subset of `chars` that the named snapcompact font can render.
@@ -1165,8 +1380,8 @@ pub struct SnapcompactRenderOptions {
 pub fn snapcompact_supported_chars(font: String, chars: String) -> Result<String> {
 	let font = resolve_font(&font).ok_or_else(|| {
 		Error::from_reason(format!(
-			"Unknown snapcompact font {font:?}: expected \"5x8\", \"8x8\", \"6x12\", \"8x13\", or \
-			 \"silver\""
+			"Unknown snapcompact font {font:?}: expected \"5x8\", \"8x8\", \"6x12\", \"8x13\", \
+			 \"silver\", or \"zpix\""
 		))
 	})?;
 	let mut supported = String::new();
@@ -1178,19 +1393,103 @@ pub fn snapcompact_supported_chars(font: String, chars: String) -> Result<String
 	Ok(supported)
 }
 
-/// Render one snapcompact frame on a libuv worker: print pre-normalized text
-/// onto a `size`-wide bitmap and encode it as PNG.
-///
-/// The bitmap height hugs the rows the text actually occupies
-/// (`usedRows * lineRepeat * cellHeight`), so a partially filled frame never
-/// pays for blank padding rows. The glyph grid holds `floor(size/cellWidth) *
-/// floor(size/cellHeight/lineRepeat)` characters; input beyond that is ignored.
-/// Native-cell bitmap-font shapes encode as indexed PNG; stretched bitmap-font
-/// shapes (target cell != font cell) encode as RGB. TrueType shapes encode RGB
-/// directly from grayscale coverage.
+fn split_ttf_advance_frame_counts(
+	text: &str,
+	width: usize,
+	font: &TtfFont,
+	font_size: f32,
+	line_spacing: f32,
+	margin: usize,
+) -> Vec<u32> {
+	let line_metrics = font.face.horizontal_line_metrics(font_size);
+	let ascent =
+		line_metrics.map_or_else(|| font.ascent * font_size / font.px, |metrics| metrics.ascent);
+	let descent = line_metrics.map_or(0.0, |metrics| metrics.descent);
+	let line_height = (ascent - descent).ceil() + line_spacing;
+	let margin = margin.min(width.saturating_sub(1));
+	let right_limit = (width.saturating_sub(margin)) as f32;
+	let bottom_limit = (width.saturating_sub(margin)) as f32;
+	let mut current_x = margin as f32;
+	let mut baseline = margin as f32 + ascent;
+	let mut cache = HashMap::new();
+	let mut fallback_cache = HashMap::new();
+	let mut counts = Vec::new();
+	let mut frame_chars = 0u32;
+
+	for ch in text.chars() {
+		let code = ch as u32;
+		if matches!(code, DIM_ON | DIM_OFF) {
+			frame_chars = frame_chars.saturating_add(1);
+			continue;
+		}
+		let glyph = if let Some(glyph) = cached_ttf_glyph(&mut cache, font, ch, font_size) {
+			glyph
+		} else if let Some(glyph) = cached_ttf_glyph(&mut fallback_cache, &FONT_SILVER, ch, font_size)
+		{
+			glyph
+		} else {
+			frame_chars = frame_chars.saturating_add(1);
+			continue;
+		};
+		if current_x > margin as f32 && current_x + glyph.metrics.advance_width > right_limit {
+			current_x = margin as f32;
+			baseline += line_height;
+		}
+		if baseline + descent + margin as f32 > bottom_limit && frame_chars > 0 {
+			counts.push(frame_chars);
+			frame_chars = 0;
+			current_x = margin as f32;
+			baseline = margin as f32 + ascent;
+		}
+		current_x += glyph.metrics.advance_width;
+		frame_chars = frame_chars.saturating_add(1);
+	}
+	if frame_chars > 0 || counts.is_empty() {
+		counts.push(frame_chars);
+	}
+	counts
+}
+
+#[napi]
+pub fn snapcompact_advance_frame_counts(
+	text: String,
+	options: SnapcompactRenderOptions,
+) -> Result<Vec<u32>> {
+	let size = options.size;
+	if size == 0 || size > MAX_FRAME_SIZE {
+		return Err(Error::from_reason(format!(
+			"Invalid frame size {size}: expected 1..={MAX_FRAME_SIZE}"
+		)));
+	}
+	let font_name = options.font.as_deref().unwrap_or("5x8");
+	let font = resolve_font(font_name).ok_or_else(|| {
+		Error::from_reason(format!(
+			"Unknown snapcompact font {font_name:?}: expected \"5x8\", \"8x8\", \"6x12\", \"8x13\", \
+			 \"silver\", or \"zpix\""
+		))
+	})?;
+	if options.layout.as_deref().unwrap_or("grid") != "advance" || font_name != "zpix" {
+		return Err(Error::from_reason(
+			"snapcompactAdvanceFrameCounts only supports zpix advance layout".to_string(),
+		));
+	}
+	let RenderFont::Ttf(font) = font else {
+		return Err(Error::from_reason("zpix font is not a TrueType font".to_string()));
+	};
+	let target_h = options.cell_height.unwrap_or(font.cell_h as u32).max(1);
+	let font_size = options
+		.font_size
+		.unwrap_or_else(|| f64::from(target_h))
+		.max(1.0) as f32;
+	let line_spacing = options.line_spacing_px.unwrap_or(0.0).max(0.0) as f32;
+	let margin = options.margin.unwrap_or(0) as usize;
+	Ok(split_ttf_advance_frame_counts(&text, size as usize, font, font_size, line_spacing, margin))
+}
+
 /// `stretch: false` pins bitmap fonts to the indexed path, printing
 /// natural-size glyphs on the requested cell box; `columns: 2` flows
 /// pre-wrapped newline-separated lines down two newspaper columns.
+///
 /// `U+000E`/`U+000F` in `text` toggle dim-gray ink spans without occupying a
 /// cell.
 /// Returns a promise for the PNG encoded as base64, created as a one-byte
@@ -1218,7 +1517,7 @@ fn render_snapcompact_png_sync(
 	let font = resolve_font(font_name).ok_or_else(|| {
 		Error::from_reason(format!(
 			"Unknown snapcompact font {font_name:?}: expected \"5x8\", \"8x8\", \"6x12\", \"8x13\", \
-			 or \"silver\""
+			 \"silver\", or \"zpix\""
 		))
 	})?;
 	let black_ink = match options.variant.as_deref().unwrap_or("sent") {
@@ -1236,6 +1535,37 @@ fn render_snapcompact_png_sync(
 	let target_h = options.cell_height.unwrap_or(natural_h as u32).max(1) as usize;
 	let repeat = options.line_repeat.unwrap_or(1).max(1) as usize;
 	let columns = options.columns.unwrap_or(1);
+	let coverage_threshold =
+		(options.coverage_threshold.unwrap_or(0.49).clamp(0.0, 1.0) * 255.0).round() as u8;
+	let layout = options.layout.as_deref().unwrap_or("grid");
+	if !matches!(layout, "grid" | "advance") {
+		return Err(Error::from_reason(format!(
+			"Invalid snapcompact layout {layout:?}: expected \"grid\" or \"advance\""
+		)));
+	}
+	if layout == "advance" && font_name == "zpix" {
+		let font_size = options
+			.font_size
+			.unwrap_or_else(|| f64::from(target_h as u32))
+			.max(1.0) as f32;
+		let line_spacing = options.line_spacing_px.unwrap_or(0.0).max(0.0) as f32;
+		let margin = options.margin.unwrap_or(0) as usize;
+		if let RenderFont::Ttf(font) = font {
+			let (pixels, height) = render_ttf_advance_binary(
+				&text,
+				size as usize,
+				font,
+				black_ink,
+				coverage_threshold,
+				font_size,
+				line_spacing,
+				margin,
+			);
+			return Ok(STANDARD
+				.encode(encode_indexed_png(&pixels, size as usize, height, png::Compression::High)?)
+				.into());
+		}
+	}
 	if !matches!(columns, 1 | 2) {
 		return Err(Error::from_reason(format!(
 			"Invalid snapcompact columns {columns}: expected 1 or 2"
@@ -1259,11 +1589,18 @@ fn render_snapcompact_png_sync(
 	// caller derives cols from), height hugs the rows the text needs. Bitmap
 	// shapes draw wide code points through Silver across two cells, so they
 	// count double here; the square-celled Silver shape keeps one cell each.
-	let wide_cells = matches!(font, RenderFont::Bitmap(_));
+	let wide_cells = matches!(font, RenderFont::Bitmap(_)) || font_name == "zpix";
 	let used = used_rows(&text, &grid, doc, wide_cells);
 	let height = used * grid.repeat * grid.cell_h;
 
 	match font {
+		RenderFont::Ttf(font) if font_name == "zpix" => {
+			let pixels =
+				render_ttf_binary(&text, size, height, font, &grid, black_ink, coverage_threshold);
+			Ok(STANDARD
+				.encode(encode_indexed_png(&pixels, size, height, png::Compression::High)?)
+				.into())
+		},
 		RenderFont::Ttf(font) => {
 			let pixels = if doc {
 				render_ttf_doc_rgb(&text, size, height, font, &grid, black_ink)
@@ -1351,6 +1688,14 @@ mod tests {
 		assert!(FONT_SILVER.supported.contains(&'こ'), "Silver must cover Japanese kana");
 		assert!(FONT_SILVER.supported.contains(&'你'), "Silver must cover Han text");
 		assert!(FONT_SILVER.supported.contains(&'안'), "Silver must cover Hangul syllables");
+	}
+
+	#[test]
+	fn zpix_font_covers_unicode_archive_text() {
+		assert!(FONT_ZPIX.supported.contains(&'你'), "zpix must cover Han text");
+		assert!(FONT_ZPIX.supported.contains(&'A'), "zpix must cover ASCII text");
+		let supported = snapcompact_supported_chars("zpix".into(), "你好ABC".into()).unwrap();
+		assert_eq!(&*supported, "你好ABC");
 	}
 
 	#[test]
@@ -1490,6 +1835,20 @@ mod tests {
 			.unwrap(),
 		);
 		assert_eq!(silver[25], 2, "TrueType frames render as RGB");
+
+		let zpix = png_bytes(
+			render_snapcompact_png_sync("你好ABC".into(), SnapcompactRenderOptions {
+				size: 128,
+				font: Some("zpix".into()),
+				cell_width: Some(12),
+				cell_height: Some(26),
+				variant: Some("bw".into()),
+				coverage_threshold: Some(0.49),
+				..Default::default()
+			})
+			.unwrap(),
+		);
+		assert_eq!(zpix[25], 3, "zpix TrueType frames render as indexed binary PNG");
 	}
 
 	#[test]
