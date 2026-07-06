@@ -242,6 +242,9 @@
 ### Fixed
 
 - Fixed an issue where provider orchestration tokens were incorrectly included in context token calculations, which could trigger premature context auto-compaction and promotion.
+### Added
+
+- Added the `unicode-snapcompact` compaction strategy value for hosts that expose Unicode/CJK bitmap archive compaction.
 
 ## [16.3.3] - 2026-07-02
 

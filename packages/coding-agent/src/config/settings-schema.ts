@@ -1,6 +1,6 @@
 import { THINKING_EFFORTS } from "@oh-my-pi/pi-ai";
 import { DEFAULT_SHARE_URL } from "@oh-my-pi/pi-wire";
-import { SHAPE_VARIANT_NAMES } from "@oh-my-pi/snapcompact";
+import { SHAPE_VARIANT_NAMES, UNICODE_SHAPE_VARIANT_NAMES } from "@oh-my-pi/snapcompact";
 import { DEFAULT_RELAY_URL } from "../collab/protocol";
 import { DEFAULT_LIVE_VOICE, LIVE_VOICE_OPTIONS, LIVE_VOICE_VALUES } from "../live/voices";
 import { DEFAULT_STT_MODEL_KEY, STT_MODEL_OPTIONS, STT_MODEL_VALUES } from "../stt/models";
@@ -2165,14 +2165,14 @@ export const SETTINGS_SCHEMA = {
 
 	"compaction.strategy": {
 		type: "enum",
-		values: ["context-full", "handoff", "shake", "snapcompact", "off"] as const,
+		values: ["context-full", "handoff", "shake", "snapcompact", "unicode-snapcompact", "off"] as const,
 		default: "snapcompact",
 		ui: {
 			tab: "context",
 			group: "Compaction",
 			label: "Compaction Strategy",
 			description:
-				"Choose in-place context-full maintenance, auto-handoff, surgical shake (drop heavy content), snapcompact (archive history as dense images), or disable auto maintenance (off)",
+				"Choose in-place context-full maintenance, auto-handoff, surgical shake (drop heavy content), snapcompact (archive history as dense images), Unicode Snapcompact (archive Unicode/CJK history as zpix bitmap images), or disable auto maintenance (off)",
 			options: [
 				{
 					value: "context-full",
@@ -2189,6 +2189,12 @@ export const SETTINGS_SCHEMA = {
 					value: "snapcompact",
 					label: "Snapcompact",
 					description: "Archive history onto dense bitmap images the model reads back; no LLM call",
+				},
+				{
+					value: "unicode-snapcompact",
+					label: "Unicode Snapcompact",
+					description:
+						"Archive Unicode/CJK-heavy history onto zpix bitmap images the model reads back; no LLM call",
 				},
 				{
 					value: "off",
@@ -2556,6 +2562,36 @@ export const SETTINGS_SCHEMA = {
 					value: "doc-8on16-sent-dim",
 					label: "Doc 8on16, sentence hues + dimmed stopwords",
 					description: "Two-column doc layout, sentence-hue ink, function words dimmed gray.",
+				},
+			],
+		},
+	},
+
+	"snapcompact.unicodeShape": {
+		type: "enum",
+		values: ["auto", ...UNICODE_SHAPE_VARIANT_NAMES] as const,
+		default: "auto",
+		ui: {
+			tab: "context",
+			group: "Experimental",
+			label: "Unicode Snapcompact Shape",
+			description: "Frame shape for unicode-snapcompact archives. Auto currently picks the zpix24 quality preset.",
+			options: [
+				{
+					value: "auto",
+					label: "Auto",
+					description: "Uses the default Unicode Snapcompact preset for the current model.",
+				},
+				{
+					value: "zpix24-binary-2000",
+					label: "zpix24 quality",
+					description: "24px zpix binary rasterization on 2000px frames; highest tested Unicode recall.",
+				},
+				{
+					value: "zpix18-half-049-2000",
+					label: "zpix18 density",
+					description:
+						"18px zpix half-pixel-preserving rasterization on 2000px frames; fewer frames, lower recall.",
 				},
 			],
 		},
@@ -5668,7 +5704,7 @@ export type Personality = SettingValue<"personality">;
 
 export interface CompactionSettings {
 	enabled: boolean;
-	strategy: "context-full" | "handoff" | "shake" | "snapcompact" | "off";
+	strategy: "context-full" | "handoff" | "shake" | "snapcompact" | "unicode-snapcompact" | "off";
 	thresholdPercent: number;
 	thresholdTokens: number;
 	reserveTokens: number | undefined;
