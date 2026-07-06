@@ -8,10 +8,10 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@oh-my-pi/pi-coding-agent"><img src="https://img.shields.io/npm/v/@oh-my-pi/pi-coding-agent?style=flat&colorA=222222&colorB=CB3837" alt="npm version"></a>
-  <a href="https://github.com/can1357/oh-my-pi/blob/main/packages/coding-agent/CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-keep-E05735?style=flat&colorA=222222" alt="Changelog"></a>
-  <a href="https://github.com/can1357/oh-my-pi/actions"><img src="https://img.shields.io/github/actions/workflow/status/can1357/oh-my-pi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
-  <a href="https://github.com/can1357/oh-my-pi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/can1357/oh-my-pi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
+  <a href="https://www.npmjs.com/package/@oh-my-pi-zen/pi-coding-agent"><img src="https://img.shields.io/npm/v/@oh-my-pi-zen/pi-coding-agent?style=flat&colorA=222222&colorB=CB3837" alt="Zen npm version"></a>
+  <a href="https://github.com/cagedbird043/oh-my-pi-zen/blob/zen/main/packages/coding-agent/CHANGELOG.md"><img src="https://img.shields.io/badge/changelog-zen-E05735?style=flat&colorA=222222" alt="Zen changelog"></a>
+  <a href="https://github.com/cagedbird043/oh-my-pi-zen/actions"><img src="https://img.shields.io/github/actions/workflow/status/cagedbird043/oh-my-pi-zen/ci.yml?branch=zen/main&style=flat&colorA=222222&colorB=3FB950" alt="Zen CI"></a>
+  <a href="https://github.com/cagedbird043/oh-my-pi-zen/blob/zen/main/LICENSE"><img src="https://img.shields.io/github/license/cagedbird043/oh-my-pi-zen?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
   <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&colorA=222222&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-DEA584?style=flat&colorA=222222&logo=rust&logoColor=white" alt="Rust"></a>
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat&colorA=222222" alt="Bun"></a>
@@ -22,45 +22,73 @@
   Fork of <a href="https://github.com/badlogic/pi-mono">Pi</a> by <a href="https://github.com/mariozechner">@mariozechner</a> 
 </p>
 
-The most capable agent surface that ships. Continuously tuned by real-world use — complete out of the box, open all the way down.
+Oh My Pi Zen is the dogfooded downstream distribution of [Oh My Pi](https://github.com/can1357/oh-my-pi): same CLI surface, upstream-compatible source package names, and a small Zen patch stack for long-running coding sessions.
 
-**40+** providers · **32** built-in tools · **14** lsp ops · **28** dap ops · **~55k** lines of Rust core.
+Install Zen when you want the downstream build that is used daily for CJK-heavy coding work, provider-gateway compatibility, and release-tested binaries under the `omp-zen` name.
 
-> Downstream note: this fork carries Oh My Pi Zen patches on `zen/main`. See `downstream/README.md` for branch taxonomy, dogfood install, and release policy.
+**Zen highlights**
 
-## Install
+- `unicode-snapcompact`: zpix-backed visual archive compaction for Unicode/CJK long-session memory.
+- Downstream release channel: the CLI update command checks `cagedbird043/oh-my-pi-zen` releases and `@oh-my-pi-zen/*` packages.
+- Provider ergonomics: stronger quota/fallback handling for relay gateways and status-line provider visibility.
+- Supported release targets: Linux x64, Linux arm64, and macOS arm64.
 
-**macOS · Linux**
+The editable source tree intentionally keeps upstream `@oh-my-pi/*` package names for clean rebases. Publish/install artifacts use `@oh-my-pi-zen/*`, `omp-zen-*` release assets, and the Zen update channel. See [`downstream/README.md`](downstream/README.md) for branch and release policy.
 
-```sh
-curl -fsSL https://omp.sh/install | sh
-```
+## Install Oh My Pi Zen
 
-**Homebrew**
+### Bun / npm package
 
-```sh
-brew install can1357/tap/omp
-```
-
-**Bun (recommended)**
+This installs the Zen npm package. The package exposes the standard `omp` command.
 
 ```sh
-bun install -g @oh-my-pi/pi-coding-agent
+bun install -g @oh-my-pi-zen/pi-coding-agent
+omp --version
 ```
 
-**Windows (PowerShell)**
+### Prebuilt `omp-zen` binary
 
-```powershell
-irm https://omp.sh/install.ps1 | iex
-```
+Pick the asset for your platform from the latest Zen release:
 
-**Pinned versions (mise)**
+| Platform | Asset |
+| --- | --- |
+| Linux x64 | `omp-zen-linux-x64` |
+| Linux arm64 | `omp-zen-linux-arm64` |
+| macOS arm64 | `omp-zen-darwin-arm64` |
 
 ```sh
-mise use -g github:can1357/oh-my-pi
+mkdir -p ~/.local/bin
+asset=omp-zen-linux-x64 # or omp-zen-linux-arm64 / omp-zen-darwin-arm64
+curl -fL "https://github.com/cagedbird043/oh-my-pi-zen/releases/latest/download/${asset}" -o ~/.local/bin/omp-zen
+chmod +x ~/.local/bin/omp-zen
+omp-zen --version
 ```
 
-macOS · Linux · Windows · bun ≥ 1.3.14
+Optional: make Zen your `omp` command too.
+
+```sh
+ln -sf ~/.local/bin/omp-zen ~/.local/bin/omp
+```
+
+### Homebrew
+
+```sh
+brew install cagedbird043/tap/omp-zen
+```
+
+### Update
+
+```sh
+omp-zen update
+```
+
+If you installed the npm package instead of the binary release, update with your package manager:
+
+```sh
+bun install -g @oh-my-pi-zen/pi-coding-agent
+```
+
+If you want upstream Oh My Pi instead of the Zen downstream, use [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) and `@oh-my-pi/pi-coding-agent`.
 
 ### Shell completions
 
