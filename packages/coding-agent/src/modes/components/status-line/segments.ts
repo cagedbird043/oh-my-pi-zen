@@ -109,9 +109,9 @@ const modelSegment: StatusLineSegment = {
 		if (modelName.startsWith("Claude ")) {
 			modelName = modelName.slice(7);
 		}
-		if (opts.showProvider === true) {
+		if (opts.showProvider !== false) {
 			const provider = modelProviderPrefix(state.model);
-			if (provider) modelName = `${provider}/${modelName}`;
+			if (provider && !modelName.startsWith(`${provider}/`)) modelName = `${provider}/${modelName}`;
 		}
 
 		// Resolve the current thinking-level display ("◉ xhigh", "⟳ auto", …)
