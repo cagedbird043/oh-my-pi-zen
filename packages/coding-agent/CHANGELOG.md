@@ -11,6 +11,7 @@
 
 - Fixed retry fallback treating relay `520` HTML error pages as model failures; these transient proxy responses now retry on the same model instead of switching providers.
 - Fixed retry fallback failing to advance to the next model on relay `insufficient_user_*` quota errors.
+- Fixed the status line model segment dropping the provider prefix after model metadata refreshes; provider names now remain visible unless `statusLine.segmentOptions.model.showProvider` is explicitly disabled.
 
 ## [16.3.6-zen.3] - 2026-07-04
 
