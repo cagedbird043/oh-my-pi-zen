@@ -268,6 +268,9 @@
 - Fixed session titles occasionally showing raw `{"title": "..."}` JSON. Online title generation now always uses the `<title>...</title>` marker prompt instead of a forced `set_title` tool call — hosts that ignored or rejected forced `tool_choice` echoed the prompt's JSON example verbatim as the title — and JSON-shaped responses (bare, code-fenced, marker-wrapped, or truncated) are unwrapped to the bare title.
 - Fixed Linux startup prompt construction to read the CPU model from `/proc/cpuinfo` instead of `os.cpus()`, avoiding per-core sysfs frequency probes on many-core hosts ([#4712](https://github.com/can1357/oh-my-pi/issues/4712)).
 - Fixed llama.cpp model discovery to honor per-model `architecture.input_modalities` from `/v1/models`, so router presets that advertise image input are no longer treated as text-only ([#4719](https://github.com/can1357/oh-my-pi/issues/4719)).
+- Fixed retry fallback treating relay `520` HTML error pages as model failures; these transient proxy responses now retry on the same model instead of switching providers.
+- Fixed retry fallback failing to advance to the next model on relay `insufficient_user_*` quota errors.
+- Fixed the status line model segment dropping the provider prefix after model metadata refreshes; provider names now remain visible unless `statusLine.segmentOptions.model.showProvider` is explicitly disabled.
 
 ## [16.3.10] - 2026-07-06
 
