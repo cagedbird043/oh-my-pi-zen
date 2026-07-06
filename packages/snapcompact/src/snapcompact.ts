@@ -45,7 +45,7 @@
  */
 
 import type { Api, ImageContent, Message, TextContent } from "@oh-my-pi/pi-ai";
-import { renderSnapcompactPng, snapcompactSupportedChars } from "@oh-my-pi/pi-natives";
+import { renderSnapcompactPng, snapcompactAdvanceFrameCounts, snapcompactSupportedChars } from "@oh-my-pi/pi-natives";
 import { formatGroupedPaths, prompt } from "@oh-my-pi/pi-utils";
 import { INTENT_FIELD } from "@oh-my-pi/pi-wire";
 import fileOperationsTemplate from "./prompts/file-operations.md" with { type: "text" };
@@ -58,7 +58,7 @@ import snapcompactSummaryPrompt from "./prompts/snapcompact-summary.md" with { t
 /** One eval-validated frame shape: font, cell, ink, repetition, and size. */
 export interface Shape {
 	/** Bundled font in the native renderer. */
-	font: "5x8" | "8x8" | "6x12" | "8x13" | "silver";
+	font: "5x8" | "8x8" | "6x12" | "8x13" | "silver" | "zpix";
 	/** Target cell advance in pixels; differing from the font's natural cell
 	 *  renders via Lanczos stretch (anti-aliased RGB frame). */
 	cellWidth: number;
@@ -83,6 +83,16 @@ export interface Shape {
 	frameTokenEstimate: number;
 	/** Resolution hint attached to frame images (OpenAI-only). */
 	imageDetail?: ImageContent["detail"];
+	/** Coverage cutoff for binary TrueType rasterization. */
+	coverageThreshold?: number;
+	/** Rendering layout. `advance` follows the zpix experiment renderer: margin + glyph advance wrapping. */
+	layout?: "grid" | "advance";
+	/** Font size for advance-layout TrueType rendering. */
+	fontSize?: number;
+	/** Extra line gap for advance-layout rendering. */
+	lineSpacing?: number;
+	/** Safe inset from every frame edge for advance-layout rendering. */
+	margin?: number;
 }
 
 /** Geometry half of a {@link Shape}: everything except provider billing. */
@@ -195,6 +205,47 @@ export type ShapeVariantName = keyof typeof SHAPE_VARIANTS;
 /** All variant names, in declaration order (for settings enums). */
 export const SHAPE_VARIANT_NAMES = Object.keys(SHAPE_VARIANTS) as readonly ShapeVariantName[];
 
+/** Unicode Snapcompact variants use zpix and stay out of the legacy snapcompact settings enum. */
+export const UNICODE_SHAPE_VARIANTS = {
+	"zpix24-binary-2000": {
+		font: "zpix",
+		cellWidth: 12,
+		cellHeight: 26,
+		variant: "bw",
+		lineRepeat: 1,
+		frameSize: 2000,
+		coverageThreshold: 0.49,
+		layout: "advance",
+		fontSize: 24,
+		lineSpacing: 0,
+		margin: 8,
+	},
+	"zpix18-half-049-2000": {
+		font: "zpix",
+		cellWidth: 9,
+		cellHeight: 20,
+		variant: "bw",
+		lineRepeat: 1,
+		frameSize: 2000,
+		coverageThreshold: 0.49,
+		layout: "advance",
+		fontSize: 18,
+		lineSpacing: 0,
+		margin: 8,
+	},
+} as const satisfies Record<string, ShapeGeometry>;
+
+/** Research name of one Unicode Snapcompact frame variant. */
+export type UnicodeShapeVariantName = keyof typeof UNICODE_SHAPE_VARIANTS;
+
+/** All Unicode Snapcompact variant names, in declaration order. */
+export const UNICODE_SHAPE_VARIANT_NAMES = Object.keys(UNICODE_SHAPE_VARIANTS) as readonly UnicodeShapeVariantName[];
+
+/** Runtime guard for Unicode Snapcompact variant names loaded from config. */
+export function isUnicodeShapeVariantName(value: unknown): value is UnicodeShapeVariantName {
+	return typeof value === "string" && value in UNICODE_SHAPE_VARIANTS;
+}
+
 /** Runtime guard for variant names loaded from config. */
 export function isShapeVariantName(value: unknown): value is ShapeVariantName {
 	return typeof value === "string" && value in SHAPE_VARIANTS;
@@ -280,7 +331,12 @@ export function isShape(value: unknown): value is Shape {
 	const variant = shape.variant;
 	const detail = shape.imageDetail;
 	return (
-		(font === "5x8" || font === "8x8" || font === "6x12" || font === "8x13" || font === "silver") &&
+		(font === "5x8" ||
+			font === "8x8" ||
+			font === "6x12" ||
+			font === "8x13" ||
+			font === "silver" ||
+			font === "zpix") &&
 		typeof shape.cellWidth === "number" &&
 		shape.cellWidth > 0 &&
 		typeof shape.cellHeight === "number" &&
@@ -288,6 +344,10 @@ export function isShape(value: unknown): value is Shape {
 		(shape.stretch === undefined || typeof shape.stretch === "boolean") &&
 		(variant === "sent" || variant === "bw") &&
 		(shape.stopwordDim === undefined || typeof shape.stopwordDim === "boolean") &&
+		(shape.coverageThreshold === undefined ||
+			(typeof shape.coverageThreshold === "number" &&
+				shape.coverageThreshold >= 0 &&
+				shape.coverageThreshold <= 1)) &&
 		(shape.columns === undefined || shape.columns === 1 || shape.columns === 2) &&
 		typeof shape.lineRepeat === "number" &&
 		shape.lineRepeat > 0 &&
@@ -400,6 +460,13 @@ function isCjkHeavyText(text: string): boolean {
 		if (isWideCodePoint(cp)) wideChars++;
 	}
 	return wideChars >= CJK_HEAVY_MIN_WIDE_CHARS && wideChars / graphicChars >= CJK_HEAVY_WIDE_RATIO;
+}
+
+/** Pick the Unicode Snapcompact zpix shape. Kept separate from legacy shape resolution. */
+export function resolveUnicodeSnapcompactShape(model?: ShapeTarget, variant?: UnicodeShapeVariantName | "auto"): Shape {
+	const family = billingFamily(model?.api);
+	const name = variant && variant !== "auto" ? variant : "zpix24-binary-2000";
+	return priceShape(UNICODE_SHAPE_VARIANTS[name], family);
 }
 
 /**
@@ -737,6 +804,8 @@ export interface SerializeOptions {
 	/** Print tool-result text in dim gray ink so archived conversation reads
 	 *  louder than archived tool noise. Defaults to `true`. */
 	dimToolResults?: boolean;
+	/** Serializer carrier. `unicode-event-stream` keeps compact U/A turns and drops tool/thinking noise. */
+	serializer?: "raw" | "unicode-event-stream";
 }
 
 /** Keep the head and tail of `text`, eliding the middle beyond `maxChars`. */
@@ -882,6 +951,125 @@ export function serializeConversation(messages: Message[], options?: SerializeOp
 	}
 
 	return parts.join("\n\n");
+}
+
+function textBlocks(content: Message["content"]): string[] {
+	if (typeof content === "string") return [content];
+	return content
+		.filter((block): block is { type: "text"; text: string } => block.type === "text")
+		.map(block => block.text);
+}
+
+function stripCodeBlocks(text: string): string {
+	const lines: string[] = [];
+	let inCode = false;
+	for (const line of text.split(/\r?\n/)) {
+		if (line.trimStart().startsWith("```")) {
+			inCode = !inCode;
+			continue;
+		}
+		if (!inCode) lines.push(line);
+	}
+	return lines.join("\n");
+}
+
+function stripMarkdownPrefix(line: string): string {
+	let text = line.trimStart();
+	while (text.startsWith("#")) text = text.slice(1).trimStart();
+	if (text.startsWith(">")) text = text.slice(1).trimStart();
+	for (const marker of ["- ", "* ", "+ "]) {
+		if (text.startsWith(marker)) return text.slice(marker.length).trimStart();
+	}
+	const numbered = text.match(/^\d+\.\s+(.*)$/);
+	return numbered?.[1] ?? text;
+}
+
+function stripMarkdownInline(text: string): string {
+	return text
+		.replace(/[`*]/g, "")
+		.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 $2")
+		.replace(/\|/g, " ");
+}
+
+const INTERNAL_URI_PATTERN = /\b(?:artifact|local|agent|history|issue|pr|mcp|omp|skill|rule):\/\/[^\s)\]>"']+/g;
+
+function internalUris(text: string): string[] {
+	const refs: string[] = [];
+	for (const ref of text.match(INTERNAL_URI_PATTERN) ?? []) {
+		if (!refs.includes(ref)) refs.push(ref);
+	}
+	return refs;
+}
+
+function uriFallback(line: string): string | undefined {
+	const refs = internalUris(line);
+	return refs.length > 0 ? refs.join(" ") : undefined;
+}
+
+function dialogueLine(line: string): string | undefined {
+	const trimmed = line.trim();
+	if (
+		trimmed.length === 0 ||
+		trimmed === "<out>" ||
+		trimmed === "</out>" ||
+		trimmed.startsWith("[shaken ") ||
+		trimmed.startsWith("[raw output:")
+	) {
+		return uriFallback(trimmed);
+	}
+	const cleaned = stripMarkdownInline(stripMarkdownPrefix(trimmed));
+	if (
+		cleaned.length > 500 &&
+		(cleaned.startsWith("{") ||
+			cleaned.startsWith("[") ||
+			cleaned.includes("\\n") ||
+			cleaned.includes('"type":') ||
+			cleaned.includes("function ") ||
+			cleaned.includes("const ") ||
+			cleaned.includes("=>"))
+	) {
+		return uriFallback(cleaned);
+	}
+	return cleaned;
+}
+
+const USER_INVOKED_SKILL_PROMPT =
+	/^\[IMPORTANT: The user has invoked the "([^"]+)" skill, indicating they want you to follow its instructions\. The full skill content is loaded below\.\]\s*\n\n[\s\S]*?\n---\s*\n\[Skill directory: ([^\]]+)\][\s\S]*?\nUser:\s*([^\n]+)\s*$/;
+
+function compactInjectedSkillPrompt(text: string): string {
+	const match = USER_INVOKED_SKILL_PROMPT.exec(text.trim());
+	if (!match) return text;
+	const [, skill, skillDirectory, request] = match;
+	const level = request?.trim().split(/\s+/)[0];
+	const source = skillDirectory?.trim();
+	const parts = [`SKILL ${skill} active`];
+	if (level) parts.push(`level=${level}`);
+	if (source) parts.push(`source=skill://${skill}`);
+	return parts.join(" ");
+}
+
+function dialogueText(text: string): string {
+	return stripCodeBlocks(stripDimMarkers(compactInjectedSkillPrompt(text)))
+		.split(/\r?\n/)
+		.map(dialogueLine)
+		.filter((line): line is string => line !== undefined)
+		.join(" ")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+export function serializeUnicodeEventStream(messages: Message[]): string {
+	const turns: string[] = ["ARCHIVE EVENT STREAM"];
+	let turn = 1;
+	for (const msg of messages) {
+		const speaker = msg.role === "user" ? "U" : msg.role === "assistant" ? "A" : undefined;
+		if (!speaker) continue;
+		const body = textBlocks(msg.content).map(dialogueText).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+		if (!body) continue;
+		turns.push(`｜ T${String(turn).padStart(3, "0")} ${speaker}: ${body}`);
+		turn++;
+	}
+	return turns.length > 1 ? turns.join("\n") : "";
 }
 
 // ============================================================================
@@ -1382,11 +1570,34 @@ function docPages(normalized: string, geo: Geometry, wideCells: boolean): string
 	return pages;
 }
 
+function advanceGeometry(shape: Shape, size: number): Geometry {
+	const fontSize = shape.fontSize ?? shape.cellHeight;
+	const margin = shape.margin ?? 0;
+	const content = Math.max(1, size - 2 * margin);
+	const cols = Math.max(1, Math.floor(content / fontSize));
+	const rows = Math.max(1, Math.floor(content / (fontSize + (shape.lineSpacing ?? 0))));
+	return { cols, rows, capacity: cols * rows };
+}
+
+function advancePages(normalized: string, shape: Shape, frameSize: number): string[] {
+	const chars = [...normalized];
+	const counts = snapcompactAdvanceFrameCounts(normalized, nativeRenderOptions(shape, frameSize));
+	const pages: string[] = [];
+	let offset = 0;
+	for (const count of counts) {
+		if (count <= 0) continue;
+		pages.push(chars.slice(offset, offset + count).join(""));
+		offset += count;
+	}
+	return pages;
+}
+
 // ============================================================================
 // Rendering
 // ============================================================================
 
 export function geometry(shape: Shape, size: number = shape.frameSize): Geometry {
+	if (shape.layout === "advance") return advanceGeometry(shape, size);
 	const gridCols = Math.floor(size / shape.cellWidth);
 	const rows = Math.floor(size / shape.cellHeight / shape.lineRepeat);
 	if (shape.columns === 2) {
@@ -1408,10 +1619,16 @@ function nativeRenderOptions(shape: Shape, size: number) {
 		variant: shape.variant,
 		lineRepeat: shape.lineRepeat,
 		columns: shape.columns,
+		coverageThreshold: shape.coverageThreshold,
+		layout: shape.layout,
+		fontSize: shape.fontSize,
+		lineSpacingPx: shape.lineSpacing,
+		margin: shape.margin,
 	};
 }
 
 function renderedChars(text: string, shape: Shape, geo: Geometry): number {
+	if (shape.layout === "advance") return [...text].length - (text.match(DIM_MARKERS)?.length ?? 0);
 	if (shape.columns === 2) {
 		let visible = [...text].length - (text.match(DIM_MARKERS)?.length ?? 0);
 		visible -= text.match(NEWLINES)?.length ?? 0;
@@ -1483,7 +1700,12 @@ export async function renderMany(text: string, options?: RenderManyOptions): Pro
 	// so awaiting each before starting the next leaves throughput on the table.
 	const pageTexts: string[] = [];
 	const wideCells = usesWideCells(shape);
-	if (shape.columns === 2) {
+	if (shape.layout === "advance") {
+		for (const page of advancePages(normalized, shape, frameSize)) {
+			if (cap !== undefined && pageTexts.length >= cap) break;
+			pageTexts.push(page);
+		}
+	} else if (shape.columns === 2) {
 		const finish = pageFinisher(shape);
 		for (const page of docPages(normalized, geo, wideCells)) {
 			if (cap !== undefined && pageTexts.length >= cap) break;
@@ -1505,13 +1727,14 @@ export async function renderMany(text: string, options?: RenderManyOptions): Pro
 }
 
 /** Frames needed to hold `text` at the given shape/size, without rendering.
- *  For doc shapes this wraps the text once and counts pages of `2 * rows`
- *  lines; for grid shapes it divides by the frame capacity. */
+ *  Advance shapes use the native font metrics splitter; doc shapes wrap once
+ *  and count pages of `2 * rows` lines; grid shapes paginate cells. */
 export function frames(text: string, options?: Pick<RenderManyOptions, "shape" | "model" | "frameSize">): number {
 	const shape = options?.shape ?? resolveShapeForText(text, options?.model);
 	const geo = geometry(shape, options?.frameSize ?? shape.frameSize);
 	const normalized = normalize(text, { shape });
 	const wideCells = usesWideCells(shape);
+	if (shape.layout === "advance") return advancePages(normalized, shape, options?.frameSize ?? shape.frameSize).length;
 	if (shape.columns === 2) return Math.ceil(wrap(normalized, geo.cols, wideCells).length / (2 * geo.rows));
 	return paginateCells(normalized, geo.capacity, geo.cols, wideCells).length;
 }
@@ -1698,7 +1921,7 @@ export function historyBlocks(archive: Archive, options: HistoryBlockOptions = {
  *  unchanged for doc layouts, TrueType Unicode shapes, or when no denser
  *  variant exists (foveation off). */
 function denseCompanion(high: Shape, api: Api | undefined): Shape {
-	if (high.columns === 2 || high.font === "silver") return high;
+	if (high.columns === 2 || high.layout === "advance" || high.font === "silver") return high;
 	const family = billingFamily(api);
 	const low = priceShape({ ...SHAPE_VARIANTS[FAMILY_VARIANT_LOW[family]], frameSize: high.frameSize }, family);
 	return geometry(low).capacity > geometry(high).capacity ? low : high;
@@ -1734,6 +1957,24 @@ function planFrames(pages: readonly string[], shape: Shape): PlanFrame[] {
  * internally (HQ/LQ/HQ) and drop the oldest slice of its dense center.
  */
 function planArchive(text: string, high: Shape, low: Shape, maxFrames: number): ArchiveLayout {
+	if (high.layout === "advance" && maxFrames >= 1) {
+		const pages = advancePages(text, high, high.frameSize);
+		let kept = pages;
+		let truncatedChars = 0;
+		if (pages.length > maxFrames) {
+			const dropped = pages.slice(1, pages.length - (maxFrames - 1));
+			truncatedChars = dropped.reduce((sum, page) => sum + page.length, 0);
+			kept = [...pages.slice(0, 1), ...pages.slice(pages.length - (maxFrames - 1))];
+		}
+		return {
+			frames: planFrames(kept, high),
+			textHead: "",
+			textTail: "",
+			keptText: kept.join(""),
+			truncatedChars,
+		};
+	}
+
 	const capHi = geometry(high).capacity;
 	const edgeCap = TEXT_EDGE_PAGES * capHi;
 	if (text.length <= 2 * edgeCap) {
@@ -1842,7 +2083,10 @@ export async function compact<TMessage = Message>(
 	}
 	const messages = preparation.messagesToSummarize.concat(preparation.turnPrefixMessages);
 	const llmMessages = (options?.convertToLlm ?? defaultConvertToLlm)(messages);
-	const serialized = serializeConversation(llmMessages, options);
+	const serialized =
+		options?.serializer === "unicode-event-stream"
+			? serializeUnicodeEventStream(llmMessages)
+			: serializeConversation(llmMessages, options);
 	const previousArchive = getPreservedArchive(previousPreserveData);
 	const previousText =
 		previousArchive?.text ??

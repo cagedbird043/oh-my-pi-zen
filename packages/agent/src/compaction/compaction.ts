@@ -157,7 +157,7 @@ export interface CompactionResult<T = unknown> {
 
 export interface CompactionSettings {
 	enabled: boolean;
-	strategy?: "context-full" | "handoff" | "shake" | "snapcompact" | "off";
+	strategy?: "context-full" | "handoff" | "shake" | "snapcompact" | "unicode-snapcompact" | "off";
 	thresholdPercent?: number;
 	thresholdTokens?: number;
 	midTurnEnabled?: boolean;

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added embedded zpix TrueType font support to `renderSnapcompactPng`, including binary indexed rasterization with a coverage threshold for Unicode Snapcompact frames.
+
+### Fixed
+
+- Fixed zpix advance Snapcompact frame splitting and rendering to share Silver fallback glyph handling, keeping Unicode pagination aligned with native rasterization.
+
 ## [16.3.6] - 2026-07-04
 
 ### Changed
