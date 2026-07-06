@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.3.6-zen.4] - 2026-07-06
+
 ### Added
 
 - Added a `unicode-snapcompact` compaction strategy and `/compact unicode-snapcompact` mode that archive Unicode/CJK history through zpix-backed Snapcompact frames while leaving the legacy `snapcompact` strategy unchanged; the benchmark/experiment harness lives at [cagedbird043/cjk-visual-context-bench](https://github.com/cagedbird043/cjk-visual-context-bench).

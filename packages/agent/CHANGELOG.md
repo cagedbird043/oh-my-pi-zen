@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.3.6-zen.4] - 2026-07-06
+
 ### Added
 
 - Added the `unicode-snapcompact` compaction strategy value for hosts that expose Unicode/CJK bitmap archive compaction.

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.3.6-zen.4] - 2026-07-06
+
 ### Added
 
 - Added Unicode Snapcompact zpix shape presets and a separate unicode shape resolver for CJK/Unicode bitmap archive rendering.

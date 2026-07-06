@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.3.6-zen.4] - 2026-07-06
+
 ### Fixed
 
 - Fixed plain-text 5xx provider status messages (including relay `520` HTML pages) being left as non-retryable numeric statuses instead of transient retryable errors.
