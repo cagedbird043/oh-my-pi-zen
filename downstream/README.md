@@ -65,7 +65,7 @@ The installer:
 ## Release policy
 
 - Dogfood first; release only after local use confirms the behavior.
-- Zen versions follow the distro-style format `<upstreamVersion>-zen.N`, for example `16.3.6-zen.3`.
+- Zen versions follow the distro-style format `<upstreamVersion>-zen.N`, for example `16.3.6-zen.4`.
 - Same upstream base increments `zen.N`; a new upstream base resets the counter, for example `16.3.7-zen.1`.
 - Supported binary targets are `linux-x64`, `linux-arm64`, and `darwin-arm64`.
 - Windows and macOS x64 are not Zen release targets.
@@ -74,8 +74,9 @@ The installer:
 
 Current dogfood patch stack includes:
 
+- `unicode-snapcompact`: zpix-backed visual archive compaction for Unicode/CJK long-session memory, with quality/density presets under `snapcompact.unicodeShape`;
 - ordered model role fallback chains: `modelRoles.default: a,b,c` means `a -> b -> c` at runtime;
 - model selector chain badges such as `DEFAULT#0`, `DEFAULT#1`, and `TASK#0`;
-- `statusLine.segmentOptions.model.showProvider` for status-line values like `codez/GPT-5.5`;
-- quota/usage-limit detection for gateway errors including Chinese quota messages such as `额度不足`;
+- status-line provider visibility for values like `codez/GPT-5.5`;
+- quota/usage-limit detection for gateway errors including Chinese quota messages and relay `insufficient_user_*` errors;
 - Zen-aware update checks against `@oh-my-pi-zen/pi-coding-agent` instead of upstream npm packages.
