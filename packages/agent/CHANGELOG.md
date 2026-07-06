@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added the `unicode-snapcompact` compaction strategy value for hosts that expose Unicode/CJK bitmap archive compaction.
+
 ## [16.3.3] - 2026-07-02
 
 ### Changed

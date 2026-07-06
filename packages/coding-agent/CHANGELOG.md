@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a `unicode-snapcompact` compaction strategy and `/compact unicode-snapcompact` mode that archive Unicode/CJK history through zpix-backed Snapcompact frames while leaving the legacy `snapcompact` strategy unchanged.
+- Added `snapcompact.unicodeShape` to select Unicode Snapcompact's zpix quality or density preset independently from the legacy `snapcompact.shape` setting.
+
 ### Fixed
 
 - Fixed retry fallback treating relay `520` HTML error pages as model failures; these transient proxy responses now retry on the same model instead of switching providers.
