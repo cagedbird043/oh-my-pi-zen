@@ -11,6 +11,7 @@ import { SEARCH_PROVIDER_ORDER } from "@oh-my-pi/pi-coding-agent/web/search/type
 const authStorage = {
 	hasAuth: () => false,
 	hasOAuth: () => false,
+	getCredentialOrigin: () => undefined,
 } as unknown as AuthStorage;
 const originalBraveApiKey = process.env.BRAVE_API_KEY;
 const originalJinaApiKey = process.env.JINA_API_KEY;
