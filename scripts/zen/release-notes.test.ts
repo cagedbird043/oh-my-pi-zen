@@ -76,8 +76,6 @@ describe("renderZenReleaseNotes", () => {
 		]);
 
 		const expectedMarkdown = [
-			"# oh-my-pi-zen 16.3.6-zen.3",
-			"",
 			"Based on [Oh My Pi 16.3.6](https://github.com/can1357/oh-my-pi/releases/tag/v16.3.6).",
 			"",
 			"## @oh-my-pi-zen/pi-ai",
