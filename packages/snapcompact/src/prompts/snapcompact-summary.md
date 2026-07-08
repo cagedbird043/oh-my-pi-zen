@@ -15,6 +15,7 @@ Reading HISTORY:
 {{/if}}{{#if lineRepeated}}  - Each line printed twice (white, then pale-yellow band); copies identical.
 {{/if}}{{/if}}{{#if includedPreviousSummary}}- HISTORY opens with a condensed digest of still-older context predating archived turns.
 {{/if}}{{#if truncatedChars}}- About {{truncatedChars}} characters of older middle history dropped to fit archive budget.
+{{/if}}{{#if exactStrings}}- Image text may contain exact-string anchors like `[E001]`. Resolve them from EXACT STRING ANCHORS below; use the side-channel value for paths, commands, hashes, architecture tokens, URI refs, and other byte-sensitive facts.
 {{/if}}- If an exact earlier detail matters and a section is unclear, re-derive from workspace (re-read files, re-run commands), rather than guess.
 
 {{#if files}}FILES
