@@ -595,6 +595,12 @@ export interface Frame {
 	detail?: ImageContent["detail"];
 }
 
+export interface ExactStringAnchor {
+	id: string;
+	text: string;
+	kind: string;
+}
+
 /** Frame archive persisted under `preserveData[PRESERVE_KEY]`. */
 export interface Archive {
 	/** Rendered frames ordered oldest to newest, re-derived from {@link text}
@@ -612,6 +618,8 @@ export interface Archive {
 	textHead?: string;
 	/** Newest text region kept verbatim around the imaged middle. */
 	textTail?: string;
+	/** Byte-sensitive strings replaced by `[E###]` anchors in the image layer. */
+	exactStrings?: ExactStringAnchor[];
 }
 
 export interface Geometry {
@@ -1171,6 +1179,52 @@ export const NEWLINE_GLYPH = "\u2588";
  *  BOM, directional marks — JS `\s` already counts BOM as whitespace, so they
  *  must fold here, before the per-character pass). */
 const COLLAPSIBLE = /[\s\p{Cf}]+/gu;
+
+const MAX_EXACT_ANCHORS = 96;
+const MAX_EXACT_ANCHOR_CHARS = 6_000;
+const EXACT_CANDIDATE =
+	/(?:\b(?:artifact|local|agent|history|issue|pr|mcp|omp|skill|rule):\/\/[^\s<>"'`]+|(?:~|\.{1,2}|\/)[A-Za-z0-9._~%+\-/:@]+|\b(?:amd64|arm64|aarch64|x86_64|AMD64|ARM64|AARCH64|X86_64)\b|[A-Za-z0-9][A-Za-z0-9_./:@?&=+\-%]{4,}[A-Za-z0-9])/g;
+const ARCH_TOKEN = /^(?:amd64|arm64|aarch64|x86_64)$/i;
+const HASH_TOKEN = /^[0-9a-f]{7,64}$/i;
+const VERSION_TOKEN = /^v?\d+(?:\.\d+){1,4}(?:[-+][A-Za-z0-9.]+)?$/;
+const URI_TOKEN = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+const PATH_TOKEN = /^(?:~|\.{1,2}|\/)/;
+const SYMBOL_TOKEN = /[_/:@?&=+\-.]/;
+
+function exactStringKind(value: string): string | undefined {
+	if (URI_TOKEN.test(value)) return "uri";
+	if (PATH_TOKEN.test(value)) return "path";
+	if (ARCH_TOKEN.test(value)) return "arch";
+	if (HASH_TOKEN.test(value)) return "hash";
+	if (VERSION_TOKEN.test(value)) return "version";
+	if (value.includes("::")) return "symbol";
+	if (SYMBOL_TOKEN.test(value)) return "exact";
+	return undefined;
+}
+
+function applyExactStringAnchors(
+	text: string,
+	existing: readonly ExactStringAnchor[] = [],
+): { text: string; exactStrings: ExactStringAnchor[] } {
+	const entries = [...existing];
+	const byText = new Map(entries.map(entry => [entry.text, entry]));
+	let totalChars = entries.reduce((sum, entry) => sum + entry.text.length, 0);
+	const anchored = text.replace(EXACT_CANDIDATE, raw => {
+		const candidate = raw.replace(/^[([{<"'`]+/, "").replace(/[)\]},.;:!?，。；：！？"'`>]+$/, "");
+		if (candidate.length < 5) return raw;
+		const kind = exactStringKind(candidate);
+		if (!kind) return raw;
+		const existingEntry = byText.get(candidate);
+		if (existingEntry) return raw.replace(candidate, `[${existingEntry.id}]`);
+		if (entries.length >= MAX_EXACT_ANCHORS || totalChars + candidate.length > MAX_EXACT_ANCHOR_CHARS) return raw;
+		const entry = { id: `E${String(entries.length + 1).padStart(3, "0")}`, text: candidate, kind };
+		entries.push(entry);
+		byText.set(candidate, entry);
+		totalChars += candidate.length;
+		return raw.replace(candidate, `[${entry.id}]`);
+	});
+	return { text: anchored, exactStrings: entries };
+}
 
 /** Runs carrying one of these collapse to {@link NEWLINE_GLYPH}. */
 const LINE_BREAK = /[\n\r\u2028\u2029]/;
@@ -1777,6 +1831,18 @@ export function getPreservedArchive(preserveData: Record<string, unknown> | unde
 	const text = typeof archive.text === "string" && archive.text.length > 0 ? archive.text : undefined;
 	const textHead = typeof archive.textHead === "string" && archive.textHead.length > 0 ? archive.textHead : undefined;
 	const textTail = typeof archive.textTail === "string" && archive.textTail.length > 0 ? archive.textTail : undefined;
+	const exactStrings = Array.isArray(archive.exactStrings)
+		? archive.exactStrings.filter(
+				entry =>
+					!!entry &&
+					typeof entry.id === "string" &&
+					/^E\d{3}$/.test(entry.id) &&
+					typeof entry.text === "string" &&
+					entry.text.length > 0 &&
+					typeof entry.kind === "string" &&
+					entry.kind.length > 0,
+			)
+		: [];
 	// A text-only archive (everything fit in the plain-text regions) is valid;
 	// only an archive carrying neither frames nor text is empty.
 	if (frames.length === 0 && text === undefined && textHead === undefined && textTail === undefined) return undefined;
@@ -1787,6 +1853,7 @@ export function getPreservedArchive(preserveData: Record<string, unknown> | unde
 		...(text !== undefined ? { text } : {}),
 		...(textHead !== undefined ? { textHead } : {}),
 		...(textTail !== undefined ? { textTail } : {}),
+		...(exactStrings.length > 0 ? { exactStrings } : {}),
 	};
 }
 
@@ -1810,7 +1877,10 @@ export function archiveSourceText(archive: Archive): string | undefined {
 		[archive.textHead, archive.textTail]
 			.filter((part): part is string => typeof part === "string" && part.length > 0)
 			.join(NEWLINE_GLYPH);
-	return text.length > 0 ? toPlainText(text) : undefined;
+	const plain = text.length > 0 ? toPlainText(text) : "";
+	const exactStrings = archive.exactStrings?.map(entry => `${entry.id} ${entry.kind} ${entry.text}`).join("\n") ?? "";
+	if (plain.length === 0 && exactStrings.length === 0) return undefined;
+	return exactStrings.length > 0 ? `${plain}\nEXACT STRING ANCHORS\n${exactStrings}`.trimStart() : plain;
 }
 
 /** Build the text used to choose and preflight a font-aware snapcompact shape. */
@@ -1901,6 +1971,16 @@ export function historyBlocks(archive: Archive, options: HistoryBlockOptions = {
 		blocks.push({ type: "text", text: toPlainText(archive.textHead) + suffix });
 	} else if (hasOmittedImages && !hasImages) {
 		blocks.push({ type: "text", text: omittedFrameNotice(budgeted.omittedFrames, budgeted.omittedBytes) });
+	}
+	const exactStrings = archive.exactStrings?.map(entry => `${entry.id} ${entry.kind} ${entry.text}`).join("\n") ?? "";
+	if (exactStrings.length > 0) {
+		const exactBlock = `EXACT STRING ANCHORS\n${exactStrings}\n`;
+		const lastBlock = blocks[blocks.length - 1];
+		if (lastBlock?.type === "text") {
+			lastBlock.text += `${lastBlock.text.endsWith("\n") ? "" : "\n"}${exactBlock}`;
+		} else {
+			blocks.push({ type: "text", text: exactBlock });
+		}
 	}
 	// Omitted frames are the OLDEST archived images: the byte budget keeps the
 	// newest tail frames, so the gap notice precedes the kept images to keep the
@@ -2135,6 +2215,13 @@ export async function compact<TMessage = Message>(
 		archiveText = archiveText.length > 0 ? `${previousText}${NEWLINE_GLYPH}${archiveText}` : previousText;
 	}
 
+	const exactAnchors =
+		options?.serializer === "unicode-event-stream"
+			? applyExactStringAnchors(archiveText, previousArchive?.exactStrings)
+			: { text: archiveText, exactStrings: previousArchive?.exactStrings ?? [] };
+	archiveText = exactAnchors.text;
+	const exactStringText = exactAnchors.exactStrings.map(entry => `${entry.id} ${entry.kind} ${entry.text}`).join("\n");
+
 	const layout = planArchive(archiveText, high, low, maxFrames);
 	truncatedChars += layout.truncatedChars;
 
@@ -2168,13 +2255,20 @@ export async function compact<TMessage = Message>(
 	const textChars = textHead.length + textTail.length;
 
 	const frames = await Promise.all(newFrames);
-	const totalChars = frames.reduce((sum, frame) => sum + frame.chars, 0) + textChars;
+	const exactTextChars = exactStringText.length;
+	const totalChars = frames.reduce((sum, frame) => sum + frame.chars, 0) + textChars + exactTextChars;
 
 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
 	const files = formatFileList(readFiles, modifiedFiles, fileOps.read);
 
 	let summary: string;
-	if (frames.length === 0 && textHead.length === 0 && textTail.length === 0 && files.length === 0) {
+	if (
+		frames.length === 0 &&
+		textHead.length === 0 &&
+		textTail.length === 0 &&
+		files.length === 0 &&
+		exactStringText.length === 0
+	) {
 		summary = "No prior history.";
 	} else {
 		summary = prompt.render(snapcompactSummaryPrompt, {
@@ -2189,6 +2283,7 @@ export async function compact<TMessage = Message>(
 			truncatedChars,
 			includedPreviousSummary,
 			files: files.length > 0 ? files : undefined,
+			exactStrings: exactStringText.length > 0 ? exactStringText : undefined,
 		});
 	}
 
@@ -2206,12 +2301,14 @@ export async function compact<TMessage = Message>(
 		...(persistedText.length > 0 ? { text: persistedText } : {}),
 		...(textHead ? { textHead } : {}),
 		...(textTail ? { textTail } : {}),
+		...(exactAnchors.exactStrings.length > 0 ? { exactStrings: exactAnchors.exactStrings } : {}),
 	};
 
 	const textNote = textChars > 0 ? ` (+${textChars.toLocaleString()} chars as text)` : "";
+	const exactNote = exactTextChars > 0 ? ` (+${exactTextChars.toLocaleString()} exact-anchor chars)` : "";
 	return {
 		summary,
-		shortSummary: `Archived ${totalChars.toLocaleString()} chars of history onto ${frames.length} snapcompact frame${frames.length === 1 ? "" : "s"}${textNote}`,
+		shortSummary: `Archived ${totalChars.toLocaleString()} chars of history onto ${frames.length} snapcompact frame${frames.length === 1 ? "" : "s"}${textNote}${exactNote}`,
 		firstKeptEntryId,
 		tokensBefore,
 		details: { readFiles, modifiedFiles },

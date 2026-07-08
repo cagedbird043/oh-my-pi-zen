@@ -7,6 +7,9 @@
 ### Changed
 
 - Updated archived transcript rendering to use a more compact format with `¶user:`, `¶think:`, `¶ai:`, and `¶call:` scopes, omitting repeated adjacent scope headers and appending tool-call intents as comments.
+### Added
+
+- Added Unicode Snapcompact exact-string anchor metadata for byte-sensitive paths, commands, hashes, architecture tokens, symbols, versions, and URI refs.
 
 ## [16.3.7] - 2026-07-05
 
