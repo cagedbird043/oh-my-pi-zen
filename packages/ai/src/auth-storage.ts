@@ -3412,6 +3412,21 @@ export class AuthStorage {
 			.filter((entry): entry is { credential: OAuthCredential; index: number } => entry.credential.type === "oauth");
 
 		if (credentials.length === 0) return undefined;
+		if (
+			credentials.every(
+				entry =>
+					entry.credential.refresh.trim().length === 0 &&
+					Date.now() + OAUTH_REFRESH_SKEW_MS >= entry.credential.expires,
+			)
+		) {
+			throw new AIError.OAuthError(
+				`${provider} credential is access-token-only and expired; import a fresh CPA JSON or sub2api export`,
+				{
+					kind: "validation",
+					provider,
+				},
+			);
+		}
 
 		const providerKey = this.#getProviderTypeKey(provider, "oauth");
 		const order = this.#getCredentialOrder(providerKey, sessionId, credentials.length);
@@ -3592,6 +3607,15 @@ export class AuthStorage {
 			if (existing) return raceCredentialRefreshWithSignal(existing, signal);
 		}
 		if (Date.now() + OAUTH_REFRESH_SKEW_MS < credential.expires) return credential;
+		if (credential.refresh.trim().length === 0) {
+			throw new AIError.OAuthError(
+				`${provider} credential is access-token-only and expired; import a fresh CPA JSON or sub2api export`,
+				{
+					kind: "validation",
+					provider,
+				},
+			);
+		}
 		if (credentialId === undefined) {
 			return this.#refreshOAuthCredentialUnshared(provider, credential, undefined, signal);
 		}
@@ -3856,9 +3880,10 @@ export class AuthStorage {
 			return { apiKey: result.apiKey, credential: updated };
 		} catch (error) {
 			const errorMsg = String(error);
+			const isAccessTokenOnlyExpired = errorMsg.includes("credential is access-token-only and expired");
 			// Only remove credentials for definitive auth failures
 			// Keep credentials for transient errors (network, 5xx) and block temporarily
-			const isDefinitiveFailure = AIError.isDefinitiveOAuthFailure(errorMsg);
+			const isDefinitiveFailure = !isAccessTokenOnlyExpired && AIError.isDefinitiveOAuthFailure(errorMsg);
 
 			logger.warn("OAuth token refresh failed", {
 				provider,

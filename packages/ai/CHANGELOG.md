@@ -8,6 +8,11 @@
 - Fixed relay `insufficient_user_*` quota errors being classified as generic 403 auth failures instead of retryable usage-limit errors.
 
 ## [16.3.6-zen.3] - 2026-07-04
+- Fixed access-token-only OAuth credentials attempting token refresh with an empty refresh token after expiry.
+- Fixed gateway usage-limit retries falling through to cross-provider model fallback before trying a sibling credential from the same provider.
+- Fixed Codex usage-limit rotation treating Plus and K-12 accounts as separate quota groups for shared 5-hour/7-day windows.
+
+## [16.3.11-zen.1] - 2026-07-07
 
 ### Added
 
