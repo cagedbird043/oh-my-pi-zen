@@ -109,4 +109,5 @@ Environment variables are collected first, then file-defined entries are appende
 
 ## See also
 
+- [`credentials.md`](./credentials.md) -- task-oriented credential commands for `/login`, CLIProxyAPI/CPA imports, API-key migration, and broker/gateway checks.
 - [`auth-broker-gateway.md`](./auth-broker-gateway.md) -- remote credential vault and forward-proxy that keep provider OAuth refresh tokens and access tokens off developer hosts entirely (complementary to in-process obfuscation).
