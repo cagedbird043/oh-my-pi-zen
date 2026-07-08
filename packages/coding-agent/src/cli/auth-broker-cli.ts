@@ -6,8 +6,8 @@
  *   - `token` / `token --regenerate` — manages the bearer token file.
  *   - `login <provider> [--via=user@host]` — logs into a provider locally, or
  *     via SSH tunnel into a remote broker host.
- *   - `import <file|dir>` — imports CLIProxyAPI-style JSON credentials into
- *     the local SQLite store (typical use: `import ~/.cliproxy/auth`).
+ *   - `import <file|dir>` — imports CLIProxyAPI-style JSON credentials and
+ *     sub2api-data account exports into the local SQLite store.
  *   - `migrate --from-local [--include-env] [--include-oauth] [--dry-run]` —
  *     uploads local SQLite + env API keys to the broker, skipping anything
  *     the broker already has.
@@ -420,7 +420,7 @@ async function runList(flags: AuthBrokerCommandArgs["flags"]): Promise<void> {
 	}
 }
 
-// ─── CLIProxyAPI import ─────────────────────────────────────────────────
+// ─── Credential import ────────────────────────────────────────────────────
 
 /**
  * Maps the `type` field of a CLIProxyAPI credential JSON to the omp provider id.
@@ -447,6 +447,30 @@ interface CliProxyCredentialJson {
 	disabled?: boolean;
 }
 
+interface Sub2ApiCredentialJson {
+	access_token?: unknown;
+	refresh_token?: unknown;
+	expires_at?: unknown;
+	email?: unknown;
+	chatgpt_account_id?: unknown;
+	account_id?: unknown;
+	plan_type?: unknown;
+}
+
+interface Sub2ApiAccountJson {
+	platform?: unknown;
+	type?: unknown;
+	name?: unknown;
+	credentials?: unknown;
+	extra?: unknown;
+}
+
+interface Sub2ApiExportJson {
+	type?: unknown;
+	version?: unknown;
+	accounts?: unknown;
+}
+
 interface ImportPlanEntry {
 	sourceFile: string;
 	provider: string;
@@ -454,7 +478,17 @@ interface ImportPlanEntry {
 	accountId: string | null;
 	expiresAt: number;
 	disabled: boolean;
+	refreshable: boolean;
+	accessTokenOnly: boolean;
+	sourceFormat: "cliproxy" | "sub2api-data";
+	planType?: string;
 	credential: OAuthCredential;
+}
+
+function nonEmptyString(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : null;
 }
 
 function resolveCliProxyProvider(json: CliProxyCredentialJson, filename: string, overrideId?: string): string | null {
@@ -470,12 +504,160 @@ function resolveCliProxyProvider(json: CliProxyCredentialJson, filename: string,
 	return null;
 }
 
-function parseCliProxyExpiry(raw: string | undefined): number | null {
-	if (!raw) return null;
-	// CLIProxyAPI writes RFC3339-ish dates. `Date.parse` handles both `Z` and offsets.
-	const ms = Date.parse(raw);
+function parseCredentialExpiry(raw: unknown): number | null {
+	const value = nonEmptyString(raw);
+	if (!value) return null;
+	const ms = Date.parse(value);
 	if (!Number.isFinite(ms)) return null;
 	return ms;
+}
+
+function parseCliProxyCredentialFile(
+	file: string,
+	json: CliProxyCredentialJson,
+	overrideProvider: string | undefined,
+	includeDisabled: boolean,
+): { entries: ImportPlanEntry[]; skipped: Array<{ file: string; reason: string }> } {
+	const entries: ImportPlanEntry[] = [];
+	const skipped: Array<{ file: string; reason: string }> = [];
+	if (json.disabled === true && !includeDisabled) {
+		skipped.push({ file, reason: "credential marked disabled (use --include-disabled to import anyway)" });
+		return { entries, skipped };
+	}
+	const provider = resolveCliProxyProvider(json, file, overrideProvider);
+	if (!provider) {
+		skipped.push({
+			file,
+			reason: `cannot determine omp provider from type=${json.type ?? "?"} (pass --provider to override)`,
+		});
+		return { entries, skipped };
+	}
+	if (!json.access_token) {
+		skipped.push({ file, reason: "missing access_token" });
+		return { entries, skipped };
+	}
+	const refreshToken = typeof json.refresh_token === "string" ? json.refresh_token : "";
+	const accessTokenOnly = refreshToken.trim().length === 0;
+	if (accessTokenOnly && provider !== "openai-codex") {
+		skipped.push({
+			file,
+			reason: "missing refresh_token; access-token-only import is currently supported only for openai-codex",
+		});
+		return { entries, skipped };
+	}
+	const expiresAt = parseCredentialExpiry(json.expired);
+	if (expiresAt === null) {
+		skipped.push({ file, reason: `cannot parse expired=${json.expired ?? "?"}` });
+		return { entries, skipped };
+	}
+	const email = nonEmptyString(json.email);
+	const accountId = nonEmptyString(json.account_id);
+	const credential: OAuthCredential = {
+		type: "oauth",
+		access: json.access_token,
+		refresh: refreshToken,
+		expires: expiresAt,
+		...(email !== null ? { email } : {}),
+		...(accountId !== null ? { accountId } : {}),
+	};
+	entries.push({
+		sourceFile: file,
+		provider,
+		email,
+		accountId,
+		expiresAt,
+		disabled: json.disabled === true,
+		refreshable: !accessTokenOnly,
+		accessTokenOnly,
+		sourceFormat: "cliproxy",
+		credential,
+	});
+	return { entries, skipped };
+}
+
+function parseSub2ApiExportFile(
+	file: string,
+	json: Sub2ApiExportJson,
+): { entries: ImportPlanEntry[]; skipped: Array<{ file: string; reason: string }> } {
+	const entries: ImportPlanEntry[] = [];
+	const skipped: Array<{ file: string; reason: string }> = [];
+	const accounts = Array.isArray(json.accounts) ? json.accounts : [];
+	for (const [index, rawAccount] of accounts.entries()) {
+		const label = `account[${index}]`;
+		if (typeof rawAccount !== "object" || rawAccount === null || Array.isArray(rawAccount)) {
+			skipped.push({ file, reason: `${label}: invalid account object` });
+			continue;
+		}
+		const account = rawAccount as Sub2ApiAccountJson;
+		const platform = nonEmptyString(account.platform)?.toLowerCase();
+		if (platform !== "openai") {
+			skipped.push({ file, reason: `${label}: unsupported platform=${platform ?? "?"}` });
+			continue;
+		}
+		const accountType = nonEmptyString(account.type)?.toLowerCase();
+		if (accountType !== "oauth") {
+			skipped.push({ file, reason: `${label}: unsupported type=${accountType ?? "?"}` });
+			continue;
+		}
+		if (
+			typeof account.credentials !== "object" ||
+			account.credentials === null ||
+			Array.isArray(account.credentials)
+		) {
+			skipped.push({ file, reason: `${label}: missing credentials` });
+			continue;
+		}
+		const credentials = account.credentials as Sub2ApiCredentialJson;
+		const access = nonEmptyString(credentials.access_token);
+		if (!access) {
+			skipped.push({ file, reason: `${label}: missing access_token` });
+			continue;
+		}
+		const extra =
+			typeof account.extra === "object" && account.extra !== null && !Array.isArray(account.extra)
+				? (account.extra as { email?: unknown })
+				: undefined;
+		const email = nonEmptyString(credentials.email) ?? nonEmptyString(extra?.email) ?? nonEmptyString(account.name);
+		if (!email) {
+			skipped.push({ file, reason: `${label}: missing email` });
+			continue;
+		}
+		const accountId = nonEmptyString(credentials.chatgpt_account_id) ?? nonEmptyString(credentials.account_id);
+		if (!accountId) {
+			skipped.push({ file, reason: `${label}: missing chatgpt_account_id` });
+			continue;
+		}
+		const expiresAt = parseCredentialExpiry(credentials.expires_at);
+		if (expiresAt === null) {
+			skipped.push({ file, reason: `${label}: invalid expires_at` });
+			continue;
+		}
+		const refreshToken = nonEmptyString(credentials.refresh_token) ?? "";
+		const accessTokenOnly = refreshToken.length === 0;
+		const planType = nonEmptyString(credentials.plan_type) ?? undefined;
+		const credential: OAuthCredential = {
+			type: "oauth",
+			access,
+			refresh: refreshToken,
+			expires: expiresAt,
+			email,
+			accountId,
+		};
+		entries.push({
+			sourceFile: file,
+			provider: "openai-codex",
+			email,
+			accountId,
+			expiresAt,
+			disabled: false,
+			refreshable: !accessTokenOnly,
+			accessTokenOnly,
+			sourceFormat: "sub2api-data",
+			...(planType ? { planType } : {}),
+			credential,
+		});
+	}
+	return { entries, skipped };
 }
 
 async function collectImportSources(target: string): Promise<string[]> {
@@ -504,62 +686,39 @@ async function loadImportPlan(
 	const entries: ImportPlanEntry[] = [];
 	const skipped: Array<{ file: string; reason: string }> = [];
 	for (const file of files) {
-		let json: CliProxyCredentialJson;
+		let json: unknown;
 		try {
-			json = (await Bun.file(file).json()) as CliProxyCredentialJson;
+			json = await Bun.file(file).json();
 		} catch (err) {
 			skipped.push({ file, reason: `unreadable JSON: ${String(err)}` });
 			continue;
 		}
-		if (json.disabled === true && !includeDisabled) {
-			skipped.push({ file, reason: "credential marked disabled (use --include-disabled to import anyway)" });
-			continue;
-		}
-		const provider = resolveCliProxyProvider(json, file, overrideProvider);
-		if (!provider) {
-			skipped.push({
-				file,
-				reason: `cannot determine omp provider from type=${json.type ?? "?"} (pass --provider to override)`,
-			});
-			continue;
-		}
-		if (!json.access_token || !json.refresh_token) {
-			skipped.push({ file, reason: "missing access_token or refresh_token" });
-			continue;
-		}
-		const expiresAt = parseCliProxyExpiry(json.expired);
-		if (expiresAt === null) {
-			skipped.push({ file, reason: `cannot parse expired=${json.expired ?? "?"}` });
-			continue;
-		}
-		const email = typeof json.email === "string" && json.email.length > 0 ? json.email : null;
-		const accountId = typeof json.account_id === "string" && json.account_id.length > 0 ? json.account_id : null;
-		const credential: OAuthCredential = {
-			type: "oauth",
-			access: json.access_token,
-			refresh: json.refresh_token,
-			expires: expiresAt,
-			...(email !== null ? { email } : {}),
-			...(accountId !== null ? { accountId } : {}),
-		};
-		entries.push({
-			sourceFile: file,
-			provider,
-			email,
-			accountId,
-			expiresAt,
-			disabled: json.disabled === true,
-			credential,
-		});
+		const parsed =
+			typeof json === "object" &&
+			json !== null &&
+			!Array.isArray(json) &&
+			(json as Sub2ApiExportJson).type === "sub2api-data" &&
+			(json as Sub2ApiExportJson).version === 1 &&
+			Array.isArray((json as Sub2ApiExportJson).accounts)
+				? parseSub2ApiExportFile(file, json as Sub2ApiExportJson)
+				: parseCliProxyCredentialFile(file, json as CliProxyCredentialJson, overrideProvider, includeDisabled);
+		entries.push(...parsed.entries);
+		skipped.push(...parsed.skipped);
 	}
 	return { entries, skipped };
 }
 
 function describeImportEntry(entry: ImportPlanEntry): string {
 	const ident = entry.email ?? entry.accountId ?? "(no identity)";
-	const stale = entry.expiresAt < Date.now() ? " [expired]" : "";
-	const disabled = entry.disabled ? " [disabled]" : "";
-	return `${entry.provider}: ${ident}${stale}${disabled} from ${entry.sourceFile}`;
+	const tags: string[] = [];
+	if (entry.sourceFormat === "sub2api-data") tags.push("sub2api");
+	if (entry.planType) tags.push(entry.planType);
+	if (entry.accessTokenOnly) tags.push("access-token-only");
+	if (entry.expiresAt < Date.now()) tags.push("expired");
+	if (entry.disabled) tags.push("disabled");
+	if (entry.sourceFormat === "sub2api-data") tags.push(`expires ${new Date(entry.expiresAt).toISOString()}`);
+	const details = tags.length > 0 ? ` [${tags.join("; ")}]` : "";
+	return `${entry.provider}: ${ident}${details} from ${entry.sourceFile}`;
 }
 
 async function runImport(flags: AuthBrokerCommandArgs["flags"]): Promise<void> {
@@ -576,13 +735,24 @@ async function runImport(flags: AuthBrokerCommandArgs["flags"]): Promise<void> {
 				dryRun: flags.dryRun === true,
 				imported: flags.dryRun
 					? []
-					: entries.map(e => ({ provider: e.provider, email: e.email, file: e.sourceFile })),
+					: entries.map(e => ({
+							provider: e.provider,
+							sourceFormat: e.sourceFormat,
+							email: e.email,
+							accountId: e.accountId,
+							planType: e.planType,
+							file: e.sourceFile,
+						})),
 				plan: entries.map(e => ({
 					provider: e.provider,
 					email: e.email,
 					accountId: e.accountId,
 					expiresAt: e.expiresAt,
 					disabled: e.disabled,
+					refreshable: e.refreshable,
+					accessTokenOnly: e.accessTokenOnly,
+					sourceFormat: e.sourceFormat,
+					planType: e.planType,
 					file: e.sourceFile,
 				})),
 				skipped,
