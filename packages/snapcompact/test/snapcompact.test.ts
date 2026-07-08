@@ -1336,3 +1336,170 @@ describe("new shape variants", () => {
 		expect(snapcompact.isShape({ ...base, font: "9x9" })).toBe(false);
 	});
 });
+
+describe("exact-string anchors (unicode-event-stream)", () => {
+	const testPath = "/home/cagedbird/Downloads/tmp/context-image-issues/001-architecture-token-confusion.md";
+	const testArch = "amd64";
+	const testSymbol = "clippy::collapsible_if";
+
+	it("stores exactStrings and replaces exact values in archive.text with [E###] anchors", async () => {
+		const content = `Check path ${testPath}, architecture ${testArch}, and symbol ${testSymbol}.`;
+		const prep = makePreparation({
+			messagesToSummarize: [createUserMessage(content)],
+		});
+
+		const result = await snapcompact.compact(prep, {
+			serializer: "unicode-event-stream",
+			frameSize: TEST_FRAME_SIZE,
+		});
+
+		const archive = snapcompact.getPreservedArchive(result.preserveData);
+		expect(archive).toBeDefined();
+		expect(archive?.exactStrings).toBeDefined();
+		expect(archive?.exactStrings?.length).toBe(3);
+
+		// Verify the exact strings are stored with correct kind
+		const pathEntry = archive?.exactStrings?.find(e => e.text === testPath);
+		expect(pathEntry).toBeDefined();
+		expect(pathEntry?.kind).toBe("path");
+		expect(pathEntry?.id).toBe("E001");
+
+		const archEntry = archive?.exactStrings?.find(e => e.text === testArch);
+		expect(archEntry).toBeDefined();
+		expect(archEntry?.kind).toBe("arch");
+		expect(archEntry?.id).toBe("E002");
+
+		const symbolEntry = archive?.exactStrings?.find(e => e.text === testSymbol);
+		expect(symbolEntry).toBeDefined();
+		expect(symbolEntry?.kind).toBe("symbol");
+		expect(symbolEntry?.id).toBe("E003");
+
+		// Verify replacements in archive.text
+		expect(archive?.text).toBeDefined();
+		expect(archive?.text).toContain("[E001]");
+		expect(archive?.text).toContain("[E002]");
+		expect(archive?.text).toContain("[E003]");
+		expect(archive?.text).not.toContain(testPath);
+		expect(archive?.text).not.toContain(testArch);
+		expect(archive?.text).not.toContain(testSymbol);
+	});
+
+	it("summary explains exact anchors while mappings live in history blocks", async () => {
+		const content = `Check path ${testPath}, architecture ${testArch}, and symbol ${testSymbol}.`;
+		const prep = makePreparation({
+			messagesToSummarize: [createUserMessage(content)],
+		});
+
+		const result = await snapcompact.compact(prep, {
+			serializer: "unicode-event-stream",
+			frameSize: TEST_FRAME_SIZE,
+		});
+
+		expect(result.summary).toContain("Image text may contain exact-string anchors like `[E001]`");
+		expect(result.summary).not.toContain(`E001 path ${testPath}`);
+		expect(result.summary).not.toContain(`E002 arch ${testArch}`);
+		expect(result.summary).not.toContain(`E003 symbol ${testSymbol}`);
+	});
+
+	it("historyBlocks(archive) emits a text block containing EXACT STRING ANCHORS before images/tail", async () => {
+		const exactPart = `Check path ${testPath}, architecture ${testArch}, and symbol ${testSymbol}.`;
+		const longText = `${exactPart} ${"Important fact number one. ".repeat(400)} TAIL sentinel QQZZ.`;
+		const prep = makePreparation({
+			messagesToSummarize: [createUserMessage(longText)],
+		});
+
+		const result = await snapcompact.compact(prep, {
+			serializer: "unicode-event-stream",
+			frameSize: TEST_FRAME_SIZE,
+			maxFrames: 5,
+		});
+
+		const archive = snapcompact.getPreservedArchive(result.preserveData);
+		expect(archive).toBeDefined();
+		expect(archive?.frames.length).toBeGreaterThan(0);
+		expect(archive?.textHead).toBeDefined();
+		expect(archive?.textTail).toBeDefined();
+
+		const blocks = snapcompact.historyBlocks(archive!);
+		// Expect at least 3 blocks: textHead (containing exact strings), images, and textTail.
+		expect(blocks.length).toBeGreaterThanOrEqual(3);
+
+		const firstBlock = blocks[0];
+		expect(firstBlock?.type).toBe("text");
+		if (firstBlock?.type !== "text") throw new Error("expected exact side channel text block");
+		expect(firstBlock.text).toContain("EXACT STRING ANCHORS");
+		expect(firstBlock.text).toContain(`E001 path ${testPath}`);
+		expect(firstBlock.text).toContain(`E002 arch ${testArch}`);
+		expect(firstBlock.text).toContain(`E003 symbol ${testSymbol}`);
+
+		// The middle blocks should be images
+		const firstImageIdx = blocks.findIndex(b => b.type === "image");
+		expect(firstImageIdx).toBe(1);
+
+		// The last block should be the tail text block and should NOT contain the exact anchors list
+		const lastBlock = blocks[blocks.length - 1];
+		expect(lastBlock?.type).toBe("text");
+		if (lastBlock?.type !== "text") throw new Error("expected tail text block");
+		expect(lastBlock.text).toContain("TAIL sentinel QQZZ");
+		expect(lastBlock.text).not.toContain("EXACT STRING ANCHORS");
+	});
+
+	it("recompacting with previousPreserveData containing exactStrings preserves/reuses existing anchor for a repeated value", async () => {
+		// First compaction
+		const content1 = `First path is ${testPath}.`;
+		const prep1 = makePreparation({
+			messagesToSummarize: [createUserMessage(content1)],
+		});
+
+		const result1 = await snapcompact.compact(prep1, {
+			serializer: "unicode-event-stream",
+			frameSize: TEST_FRAME_SIZE,
+		});
+
+		const archive1 = snapcompact.getPreservedArchive(result1.preserveData);
+		expect(archive1?.exactStrings?.length).toBe(1);
+		expect(archive1?.exactStrings?.[0].text).toBe(testPath);
+		expect(archive1?.exactStrings?.[0].id).toBe("E001");
+
+		// Second compaction, referencing the first's preserveData and adding the same path again
+		const content2 = `Second path is also ${testPath}.`;
+		const prep2 = makePreparation({
+			messagesToSummarize: [createUserMessage(content2)],
+			previousPreserveData: result1.preserveData,
+		});
+
+		const result2 = await snapcompact.compact(prep2, {
+			serializer: "unicode-event-stream",
+			frameSize: TEST_FRAME_SIZE,
+		});
+
+		const archive2 = snapcompact.getPreservedArchive(result2.preserveData);
+		// Should not add a duplicate exactString mapping
+		expect(archive2?.exactStrings?.length).toBe(1);
+		expect(archive2?.exactStrings?.[0].text).toBe(testPath);
+		expect(archive2?.exactStrings?.[0].id).toBe("E001");
+
+		// In the combined archive.text, both occurrences should be [E001]
+		expect(archive2?.text).toContain("[E001]");
+		expect(archive2?.text).not.toContain(testPath);
+	});
+
+	it("legacy serializeConversation path (no serializer option) does not create exactStrings for the same text", async () => {
+		const content = `Check path ${testPath}, architecture ${testArch}, and symbol ${testSymbol}.`;
+		const prep = makePreparation({
+			messagesToSummarize: [createUserMessage(content)],
+		});
+
+		const result = await snapcompact.compact(prep, {
+			frameSize: TEST_FRAME_SIZE,
+		});
+
+		const archive = snapcompact.getPreservedArchive(result.preserveData);
+		expect(archive).toBeDefined();
+		// exactStrings should not be created
+		expect(archive?.exactStrings).toBeUndefined();
+
+		// The text should contain the original or normalized string, not [E001]
+		expect(archive?.text).not.toContain("[E001]");
+	});
+});
