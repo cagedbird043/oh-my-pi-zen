@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.3.11-zen.2] - 2026-07-08
+
 ### Fixed
 
 - Fixed access-token-only OAuth credentials attempting token refresh with an empty refresh token after expiry.

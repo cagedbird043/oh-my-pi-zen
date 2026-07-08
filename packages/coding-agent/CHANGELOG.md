@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.3.11-zen.2] - 2026-07-08
+
 ### Added
 
 - Added `omp auth-broker import` support for CPA Codex access-token-only JSON credentials.

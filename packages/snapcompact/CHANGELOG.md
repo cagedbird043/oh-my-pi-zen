@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.3.11-zen.2] - 2026-07-08
+
 ### Added
 
 - Added Unicode Snapcompact exact-string anchor metadata for byte-sensitive paths, commands, hashes, architecture tokens, symbols, versions, and URI refs.
