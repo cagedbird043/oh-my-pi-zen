@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added Unicode Snapcompact exact-string anchor metadata for byte-sensitive paths, commands, hashes, architecture tokens, symbols, versions, and URI refs.
+
 ## [16.3.7] - 2026-07-05
 
 ### Fixed
