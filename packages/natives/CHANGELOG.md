@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed native builds leaving generated TypeScript declarations dirty in the source checkout.
+
 ## [16.3.11-zen.1] - 2026-07-07
 
 ### Added

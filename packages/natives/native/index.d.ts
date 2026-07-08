@@ -1317,6 +1317,7 @@ export declare function readImageFromClipboard(): Promise<ClipboardImage | undef
  * `stretch: false` pins bitmap fonts to the indexed path, printing
  * natural-size glyphs on the requested cell box; `columns: 2` flows
  * pre-wrapped newline-separated lines down two newspaper columns.
+ *
  * `U+000E`/`U+000F` in `text` toggle dim-gray ink spans without occupying a
  * cell.
  * Returns a promise for the PNG encoded as base64, created as a one-byte
