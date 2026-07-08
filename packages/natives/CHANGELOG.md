@@ -11,6 +11,11 @@
 - Fixed OMP being killed outright (OOM on memory-capped hosts such as WSL) when an output-heavy bash command hit its timeout: the unbounded output-bridge backlog could grow by gigabytes before cancellation and starve the JS event loop far past the deadline; with the bounded backpressured bridge the run resolves at its deadline with flat memory ([#4866](https://github.com/can1357/oh-my-pi/issues/4866)).
 
 ## [16.3.12] - 2026-07-08
+### Fixed
+
+- Fixed native builds leaving generated TypeScript declarations dirty in the source checkout.
+
+## [16.3.11-zen.1] - 2026-07-07
 
 ### Fixed
 
