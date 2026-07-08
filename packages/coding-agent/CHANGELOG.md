@@ -204,6 +204,17 @@
 - Fixed extension `sendUserMessage()` without `deliverAs` surfacing `AgentBusyError` during active streams; omitted `deliverAs` now queues a steer through the normal prompt flow, and ACP/RPC skill-command prompts queue while streaming (RPC honors the prompt command's `streamingBehavior`, defaulting to steer) ([#4923](https://github.com/can1357/oh-my-pi/issues/4923)).
 
 ## [16.3.12] - 2026-07-08
+### Added
+
+- Added `omp auth-broker import` support for CPA Codex access-token-only JSON credentials.
+- Added `omp auth-broker import` support for sub2api-data OpenAI/Codex account exports.
+- Added a credentials/auth cookbook to make `/login`, CLIProxyAPI/CPA/sub2api imports, API-key migration, and broker/gateway checks discoverable from `omp://`.
+
+### Fixed
+
+- Fixed binary builds leaving generated legacy plugin registry files dirty in the source checkout.
+
+## [16.3.11-zen.1] - 2026-07-07
 
 ### Added
 

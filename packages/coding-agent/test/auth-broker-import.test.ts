@@ -136,6 +136,90 @@ describe("auth-broker import (CLIProxyAPI)", () => {
 		expect(parsed.plan[0].provider).toBe("anthropic");
 	});
 
+	test("imports Codex access-token-only CPA JSON without persisting session_token", async () => {
+		await writeCliProxyJson("codex-token-only.json", {
+			type: "codex",
+			email: "user@example.com",
+			expired: "2099-12-31 23:59:59 +0000",
+			account_id: "00000000-0000-4000-8000-000000000001",
+			access_token: "codex-access-only",
+			session_token: "ignored-session-token",
+			refresh_token: "",
+		});
+		await writeCliProxyJson("codex-missing-refresh.json", {
+			type: "codex",
+			email: "missing-refresh@example.com",
+			expired: "2099-12-31T23:59:59Z",
+			access_token: "codex-missing-refresh",
+		});
+
+		let restore = silenceStdout();
+		await runAuthBrokerCommand({
+			action: "import",
+			flags: { source: cliproxyDir, dryRun: true, json: true },
+		});
+		const dryRun = JSON.parse(restore().trim().split("\n").pop() ?? "{}");
+		expect(dryRun.plan).toHaveLength(2);
+		expect(dryRun.plan.map((entry: { email: string }) => entry.email).sort()).toEqual([
+			"missing-refresh@example.com",
+			"user@example.com",
+		]);
+		for (const entry of dryRun.plan) {
+			expect(entry).toMatchObject({
+				provider: "openai-codex",
+				refreshable: false,
+				accessTokenOnly: true,
+			});
+		}
+
+		restore = silenceStdout();
+		await runAuthBrokerCommand({
+			action: "import",
+			flags: { source: cliproxyDir },
+		});
+		const text = restore();
+		expect(text).toContain("[access-token-only]");
+
+		const store = await SqliteAuthCredentialStore.open(getAgentDbPath());
+		try {
+			const rows = store.listAuthCredentials("openai-codex");
+			expect(rows).toHaveLength(2);
+			const row = rows.find(
+				entry => entry.credential.type === "oauth" && entry.credential.email === "user@example.com",
+			);
+			if (!row) throw new Error("missing imported Codex token-only credential");
+			expect(row.credential.type).toBe("oauth");
+			if (row.credential.type === "oauth") {
+				expect(row.credential.access).toBe("codex-access-only");
+				expect(row.credential.refresh).toBe("");
+				expect(row.credential.accountId).toBe("00000000-0000-4000-8000-000000000001");
+				expect("session_token" in row.credential).toBe(false);
+			}
+		} finally {
+			store.close();
+		}
+	});
+
+	test("skips access-token-only JSON for non-Codex providers", async () => {
+		await writeCliProxyJson("claude-token-only.json", {
+			type: "claude",
+			access_token: "claude-access-only",
+			expired: "2099-12-31T23:59:59Z",
+			refresh_token: "",
+		});
+
+		const restore = silenceStdout();
+		await runAuthBrokerCommand({
+			action: "import",
+			flags: { source: cliproxyDir, dryRun: true, json: true },
+		});
+		const parsed = JSON.parse(restore().trim().split("\n").pop() ?? "{}");
+		expect(parsed.plan).toHaveLength(0);
+		expect(parsed.skipped[0].reason).toContain(
+			"access-token-only import is currently supported only for openai-codex",
+		);
+	});
+
 	test("--provider override forces a provider id when the JSON type is unrecognized", async () => {
 		await writeCliProxyJson("weird.json", {
 			type: "some-future-type",
@@ -184,6 +268,307 @@ describe("auth-broker import (CLIProxyAPI)", () => {
 		} finally {
 			store.close();
 		}
+	});
+
+	test("dry-run sub2api-data export with multiple accounts", async () => {
+		await writeCliProxyJson("sub2api-export.json", {
+			type: "sub2api-data",
+			version: 1,
+			accounts: [
+				{
+					platform: "openai",
+					type: "oauth",
+					credentials: {
+						access_token: "access-1",
+						refresh_token: "",
+						expires_at: "2099-12-31T23:59:59Z",
+						email: "user1@example.com",
+						chatgpt_account_id: "acc-1",
+						plan_type: "pro",
+					},
+				},
+				{
+					platform: "openai",
+					type: "oauth",
+					extra: {
+						email: "user2@example.com",
+					},
+					credentials: {
+						access_token: "access-2",
+						refresh_token: "refresh-2",
+						expires_at: "2099-12-31T23:59:59Z",
+						account_id: "acc-2",
+					},
+				},
+				{
+					platform: "openai",
+					type: "oauth",
+					name: "user3@example.com",
+					credentials: {
+						access_token: "access-3",
+						refresh_token: "",
+						expires_at: "2099-12-31T23:59:59Z",
+						chatgpt_account_id: "acc-3",
+					},
+				},
+			],
+		});
+
+		const restore = silenceStdout();
+		await runAuthBrokerCommand({
+			action: "import",
+			flags: { source: cliproxyDir, dryRun: true, json: true },
+		});
+		const output = restore();
+
+		interface DryRunOutput {
+			dryRun: boolean;
+			plan: Array<{
+				provider: string;
+				sourceFormat: string;
+				email: string | null;
+				accountId: string | null;
+				expiresAt: number;
+				planType?: string;
+				refreshable: boolean;
+				accessTokenOnly: boolean;
+			}>;
+			skipped: Array<{
+				file: string;
+				reason: string;
+			}>;
+		}
+
+		const parsed = JSON.parse(output.trim().split("\n").pop() ?? "{}") as DryRunOutput;
+		expect(parsed.dryRun).toBe(true);
+		expect(parsed.plan).toHaveLength(3);
+
+		const first = parsed.plan.find(e => e.email === "user1@example.com");
+		expect(first).toBeDefined();
+		expect(first).toMatchObject({
+			provider: "openai-codex",
+			sourceFormat: "sub2api-data",
+			email: "user1@example.com",
+			accountId: "acc-1",
+			expiresAt: Date.parse("2099-12-31T23:59:59Z"),
+			planType: "pro",
+			refreshable: false,
+			accessTokenOnly: true,
+		});
+
+		const second = parsed.plan.find(e => e.email === "user2@example.com");
+		expect(second).toBeDefined();
+		expect(second).toMatchObject({
+			provider: "openai-codex",
+			sourceFormat: "sub2api-data",
+			email: "user2@example.com",
+			accountId: "acc-2",
+			expiresAt: Date.parse("2099-12-31T23:59:59Z"),
+			refreshable: true,
+			accessTokenOnly: false,
+		});
+
+		const third = parsed.plan.find(e => e.email === "user3@example.com");
+		expect(third).toBeDefined();
+		expect(third).toMatchObject({
+			provider: "openai-codex",
+			sourceFormat: "sub2api-data",
+			email: "user3@example.com",
+			accountId: "acc-3",
+			expiresAt: Date.parse("2099-12-31T23:59:59Z"),
+			refreshable: false,
+			accessTokenOnly: true,
+		});
+
+		const store = await SqliteAuthCredentialStore.open(getAgentDbPath());
+		try {
+			expect(store.listAuthCredentials()).toHaveLength(0);
+		} finally {
+			store.close();
+		}
+	});
+
+	test("real import persists sub2api-data oauth rows and ignores unwanted fields", async () => {
+		await writeCliProxyJson("sub2api-real.json", {
+			type: "sub2api-data",
+			version: 1,
+			accounts: [
+				{
+					platform: "openai",
+					type: "oauth",
+					credentials: {
+						access_token: "access-real",
+						refresh_token: "",
+						expires_at: "2099-12-31T23:59:59Z",
+						email: "user-real@example.com",
+						chatgpt_account_id: "acc-real",
+						id_token: "should-not-persist",
+						organization_id: "org-should-not-persist",
+						chatgpt_user_id: "user-should-not-persist",
+					},
+				},
+			],
+		});
+
+		const restore = silenceStdout();
+		await runAuthBrokerCommand({
+			action: "import",
+			flags: { source: cliproxyDir },
+		});
+		restore();
+
+		const store = await SqliteAuthCredentialStore.open(getAgentDbPath());
+		try {
+			const rows = store.listAuthCredentials("openai-codex");
+			expect(rows).toHaveLength(1);
+			const row = rows[0];
+			expect(row.credential.type).toBe("oauth");
+			if (row.credential.type === "oauth") {
+				expect(row.credential.access).toBe("access-real");
+				expect(row.credential.refresh).toBe("");
+				expect(row.credential.expires).toBe(Date.parse("2099-12-31T23:59:59Z"));
+				expect(row.credential.email).toBe("user-real@example.com");
+				expect(row.credential.accountId).toBe("acc-real");
+				expect("id_token" in row.credential).toBe(false);
+				expect("organization_id" in row.credential).toBe(false);
+				expect("chatgpt_user_id" in row.credential).toBe(false);
+			}
+		} finally {
+			store.close();
+		}
+	});
+
+	test("mixed invalid sub2api-data accounts are skipped with semantic reasons", async () => {
+		await writeCliProxyJson("sub2api-skipped.json", {
+			type: "sub2api-data",
+			version: 1,
+			accounts: [
+				{
+					// platform is not openai
+					platform: "anthropic",
+					type: "oauth",
+					credentials: {
+						access_token: "a",
+						expires_at: "2099-12-31T23:59:59Z",
+						email: "user@example.com",
+						chatgpt_account_id: "acc-1",
+					},
+				},
+				{
+					// type is not oauth
+					platform: "openai",
+					type: "api_key",
+					credentials: {
+						access_token: "a",
+						expires_at: "2099-12-31T23:59:59Z",
+						email: "user@example.com",
+						chatgpt_account_id: "acc-1",
+					},
+				},
+				{
+					// missing access_token
+					platform: "openai",
+					type: "oauth",
+					credentials: {
+						expires_at: "2099-12-31T23:59:59Z",
+						email: "user@example.com",
+						chatgpt_account_id: "acc-1",
+					},
+				},
+				{
+					// missing email (no credentials.email, extra.email, or name)
+					platform: "openai",
+					type: "oauth",
+					credentials: {
+						access_token: "a",
+						expires_at: "2099-12-31T23:59:59Z",
+						chatgpt_account_id: "acc-1",
+					},
+				},
+				{
+					// missing chatgpt_account_id (and account_id)
+					platform: "openai",
+					type: "oauth",
+					credentials: {
+						access_token: "a",
+						expires_at: "2099-12-31T23:59:59Z",
+						email: "user@example.com",
+					},
+				},
+				{
+					// invalid expires_at
+					platform: "openai",
+					type: "oauth",
+					credentials: {
+						access_token: "a",
+						expires_at: "invalid-date",
+						email: "user@example.com",
+						chatgpt_account_id: "acc-1",
+					},
+				},
+			],
+		});
+
+		const restore = silenceStdout();
+		await runAuthBrokerCommand({
+			action: "import",
+			flags: { source: cliproxyDir, dryRun: true, json: true },
+		});
+		const output = restore();
+
+		interface DryRunOutput {
+			dryRun: boolean;
+			plan: Array<{
+				provider: string;
+				sourceFormat: string;
+				email: string | null;
+				accountId: string | null;
+				expiresAt: number;
+				planType?: string;
+				refreshable: boolean;
+				accessTokenOnly: boolean;
+			}>;
+			skipped: Array<{
+				file: string;
+				reason: string;
+			}>;
+		}
+
+		const parsed = JSON.parse(output.trim().split("\n").pop() ?? "{}") as DryRunOutput;
+		expect(parsed.dryRun).toBe(true);
+		expect(parsed.plan).toHaveLength(0);
+
+		// Assert skipped count is at least 6
+		expect(parsed.skipped.length).toBeGreaterThanOrEqual(6);
+
+		// Get all skips for sub2api-skipped.json
+		const sub2apiSkips = parsed.skipped.filter(s => s.file.endsWith("sub2api-skipped.json"));
+		expect(sub2apiSkips).toHaveLength(6);
+
+		// Assert semantic reason substrings based on indices (deterministic order)
+		const skip0 = sub2apiSkips.find(s => s.reason.includes("account[0]"));
+		expect(skip0).toBeDefined();
+		expect(skip0!.reason).toContain("unsupported platform");
+
+		const skip1 = sub2apiSkips.find(s => s.reason.includes("account[1]"));
+		expect(skip1).toBeDefined();
+		expect(skip1!.reason).toContain("unsupported type");
+
+		const skip2 = sub2apiSkips.find(s => s.reason.includes("account[2]"));
+		expect(skip2).toBeDefined();
+		expect(skip2!.reason).toContain("missing access_token");
+
+		const skip3 = sub2apiSkips.find(s => s.reason.includes("account[3]"));
+		expect(skip3).toBeDefined();
+		expect(skip3!.reason).toContain("missing email");
+
+		const skip4 = sub2apiSkips.find(s => s.reason.includes("account[4]"));
+		expect(skip4).toBeDefined();
+		expect(skip4!.reason).toContain("missing chatgpt_account_id");
+
+		const skip5 = sub2apiSkips.find(s => s.reason.includes("account[5]"));
+		expect(skip5).toBeDefined();
+		expect(skip5!.reason).toContain("invalid expires_at");
 	});
 });
 
