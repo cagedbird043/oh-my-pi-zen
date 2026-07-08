@@ -13,21 +13,24 @@ export interface PackageReleaseNotes {
 export interface ZenReleaseTag {
 	version: string;
 	upstreamVersion: string;
+	zenPatch: number;
 	upstreamTag: string;
 	upstreamReleaseUrl: string;
 }
 
 export function parseZenReleaseTag(tag: string): ZenReleaseTag {
 	const normalized = tag.trim();
-	const match = normalized.match(/^zen\/v(\d+\.\d+\.\d+)-zen\.\d+$/);
+	const match = normalized.match(/^zen\/v(\d+\.\d+\.\d+)-zen\.(\d+)$/);
 	if (!match) throw new Error(`Invalid Zen release tag: ${tag}`);
 	const upstreamVersion = match[1];
+	const zenPatch = Number.parseInt(match[2], 10);
 	const version = normalized.slice("zen/v".length);
 	const upstreamTag = `v${upstreamVersion}`;
 	return {
 		version,
 		upstreamVersion,
 		upstreamTag,
+		zenPatch,
 		upstreamReleaseUrl: `${UPSTREAM_REPO}/releases/tag/${upstreamTag}`,
 	};
 }
@@ -47,6 +50,9 @@ export function extractChangelogSection(changelog: string, version: string): str
 }
 
 export function renderZenReleaseNotes(tag: ZenReleaseTag, packageNotes: readonly PackageReleaseNotes[]): string {
+	if (tag.zenPatch === 1) {
+		return `Rebased Zen on [Oh My Pi ${tag.upstreamVersion}](${tag.upstreamReleaseUrl}).\n`;
+	}
 	const lines = [`Based on [Oh My Pi ${tag.upstreamVersion}](${tag.upstreamReleaseUrl}).`, ""];
 	const notes = packageNotes.filter(note => note.body.trim().length > 0);
 	if (notes.length === 0) {

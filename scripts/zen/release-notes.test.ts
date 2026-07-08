@@ -8,6 +8,7 @@ describe("parseZenReleaseTag", () => {
 			version: "16.3.6-zen.2",
 			upstreamVersion: "16.3.6",
 			upstreamTag: "v16.3.6",
+			zenPatch: 2,
 			upstreamReleaseUrl: "https://github.com/can1357/oh-my-pi/releases/tag/v16.3.6",
 		});
 	});
@@ -62,6 +63,21 @@ describe("extractChangelogSection", () => {
 });
 
 describe("renderZenReleaseNotes", () => {
+	it("renders first Zen release on an upstream baseline as a minimal rebase note", () => {
+		const tag = parseZenReleaseTag("zen/v16.3.11-zen.1");
+		const markdown = renderZenReleaseNotes(tag, [
+			{
+				packageName: "@oh-my-pi-zen/pi-coding-agent",
+				body: ["### Added", "", "- Added a downstream feature."].join("\n"),
+			},
+		]);
+
+		expect(markdown).toBe(
+			"Rebased Zen on [Oh My Pi 16.3.11](https://github.com/can1357/oh-my-pi/releases/tag/v16.3.11).\n",
+		);
+		expect(markdown).not.toContain("@oh-my-pi-zen/pi-coding-agent");
+	});
+
 	it("renders package changelog sections without commit subjects or artifact lists", () => {
 		const tag = parseZenReleaseTag("zen/v16.3.6-zen.3");
 		const markdown = renderZenReleaseNotes(tag, [
