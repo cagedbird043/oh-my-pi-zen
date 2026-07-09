@@ -13716,7 +13716,7 @@ export class AgentSession {
 	#findRetryFallbackCandidates(role: string, currentSelector: string): RetryFallbackSelector[] {
 		let chain = this.#getRetryFallbackEffectiveChain(role, currentSelector);
 		const parsedCurrent = parseRetryFallbackSelector(currentSelector, this.#modelRegistry);
-		if (chain.length === 0 && role === "default" && parsedCurrent) {
+		if (role === "default" && parsedCurrent) {
 			const chains = this.#getRetryFallbackChains();
 			const defaultChain = chains.default;
 			if (
@@ -13724,13 +13724,18 @@ export class AgentSession {
 				defaultChain.length > 0 &&
 				this.#getRetryFallbackPrimarySelector("default") === undefined
 			) {
-				const seen = new Set<string>([parsedCurrent.raw]);
-				chain = [parsedCurrent];
+				const seen = new Set<string>();
+				const addSelector = (selector: RetryFallbackSelector): void => {
+					const key = `${selector.provider}/${selector.id}:${selector.thinkingLevel ?? ""}`;
+					if (seen.has(key)) return;
+					seen.add(key);
+					chain.push(selector);
+				};
+				chain = [];
+				addSelector(parsedCurrent);
 				for (const selector of defaultChain) {
 					const parsed = this.#parseRetryFallbackChainEntry(selector, parsedCurrent);
-					if (!parsed || seen.has(parsed.raw)) continue;
-					seen.add(parsed.raw);
-					chain.push(parsed);
+					if (parsed) addSelector(parsed);
 				}
 			}
 		}
