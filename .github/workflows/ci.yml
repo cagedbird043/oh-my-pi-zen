@@ -604,7 +604,7 @@ jobs:
          # Keep npm aligned with trusted publishing setup (>= 11.16.0).
          - name: Ensure npm supports trusted publishing
            if: ${{ !inputs.skip_npm }}
-           run: npm install -g npm@latest
+           run: npm install -g npm@11.16.0
          - name: Cache bun dependencies
            uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
            with:
@@ -751,7 +751,7 @@ jobs:
               registry-url: "https://registry.npmjs.org"
          # Keep npm aligned with trusted publishing setup (>= 11.16.0).
          - name: Ensure npm supports trusted publishing
-           run: npm install -g npm@latest
+           run: npm install -g npm@11.16.0
          - name: Cache bun dependencies
            uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
            with:
