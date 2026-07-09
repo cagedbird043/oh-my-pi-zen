@@ -5,6 +5,11 @@
 ### Added
 
 - Added Unicode Snapcompact exact-string anchor metadata for byte-sensitive paths, commands, hashes, architecture tokens, symbols, versions, and URI refs.
+- Added Unicode Snapcompact zpix shape presets and a separate Unicode shape resolver for CJK/Unicode bitmap archive rendering.
+
+### Fixed
+
+- Fixed Unicode Snapcompact advance-frame pagination, character accounting, Silver fallback rendering, and injected skill prompt compaction.
 
 ## [16.3.7] - 2026-07-05
 

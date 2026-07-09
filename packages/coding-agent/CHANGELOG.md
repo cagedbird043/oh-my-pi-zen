@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added ordered model role fallback chains and model-selector actions for assigning primary/fallback role models.
+- Added `omp auth-broker import` support for CPA Codex access-token-only JSON credentials and sub2api-data OpenAI/Codex account exports.
+- Added a credentials/auth cookbook discoverable from `omp://`.
+
+### Fixed
+
+- Fixed relay `520` HTML pages and relay `insufficient_user_*` quota errors taking the wrong retry/fallback path.
+- Fixed the status line model segment dropping the provider prefix after metadata refreshes.
+- Fixed binary builds leaving generated legacy plugin registry files dirty in the source checkout.
+
 ## [16.3.12] - 2026-07-08
 ### Added
 

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added embedded zpix TrueType font support to `renderSnapcompactPng`, including binary indexed rasterization for Unicode Snapcompact frames.
+
+### Fixed
+
+- Fixed native builds leaving generated TypeScript declarations dirty in the source checkout.
+- Fixed zpix advance Snapcompact frame splitting and rendering to share Silver fallback glyph handling.
+
 ## [16.3.12] - 2026-07-08
 ### Fixed
 
