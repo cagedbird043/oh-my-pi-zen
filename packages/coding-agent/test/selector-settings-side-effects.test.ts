@@ -105,17 +105,22 @@ describe("selector setting side effects", () => {
 		controller.showModelSelector();
 		if (!selector) throw new Error("Expected model selector to be shown");
 		selector.handleInput("\n");
-		for (let attempt = 0; attempt < 20; attempt++) {
+		for (let attempt = 0; attempt < 80; attempt++) {
 			const selectedLine = stripVTControlCharacters(selector.render(220).join("\n"))
 				.split("\n")
 				.find(line => {
 					if (!line.includes("Set as DEFAULT retry fallback")) return false;
 					const trimmed = line.trimStart();
-					return trimmed.startsWith("❯") || trimmed.startsWith("▸") || trimmed.startsWith(">");
+					return (
+						trimmed.startsWith("❯") ||
+						trimmed.startsWith("▸") ||
+						trimmed.startsWith(">") ||
+						trimmed.startsWith("\uf054")
+					);
 				});
 			if (selectedLine) break;
 			selector.handleInput("\x1b[B");
-			if (attempt === 19) throw new Error("Default retry fallback action was not selectable");
+			if (attempt === 79) throw new Error("Default retry fallback action was not selectable");
 		}
 		selector.handleInput("\n");
 		await Promise.resolve();
