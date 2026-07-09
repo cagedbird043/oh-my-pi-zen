@@ -315,6 +315,7 @@ export class ModelSelectorComponent extends Container {
 			if (action.action !== "fallback") return true;
 			return !(this.#roleChains[action.role] ?? []).some(assigned => modelsAreEqual(assigned.model, model));
 		});
+	}
 
 	#loadRoleModels(autoCandidateModels?: ReadonlyArray<Model>): void {
 		const nextRoles = {} as Record<string, RoleAssignment | undefined>;
