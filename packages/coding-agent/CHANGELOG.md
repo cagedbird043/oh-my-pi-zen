@@ -2,19 +2,32 @@
 
 ## [Unreleased]
 
+## [16.3.12-zen.1] - 2026-07-09
+
 ### Added
 
 - Added ordered model role fallback chains and model-selector actions for assigning primary/fallback role models.
 - Added `omp auth-broker import` support for CPA Codex access-token-only JSON credentials and sub2api-data OpenAI/Codex account exports.
 - Added a credentials/auth cookbook discoverable from `omp://`.
+- Added a `unicode-snapcompact` compaction strategy and `/compact unicode-snapcompact` mode that archive Unicode/CJK history through zpix-backed Snapcompact frames while leaving the legacy `snapcompact` strategy unchanged; the benchmark/experiment harness lives at [cagedbird043/cjk-visual-context-bench](https://github.com/cagedbird043/cjk-visual-context-bench).
+- Added `snapcompact.unicodeShape` to select Unicode Snapcompact's zpix quality or density preset independently from the legacy `snapcompact.shape` setting.
+- Added ordered model role chains: comma-separated `modelRoles.<role>` entries now act as provider fallback chains, and the model selector shows/edit them with zero-based badges like `ROLE#0`, `ROLE#1`, etc.
+- Added `statusLine.segmentOptions.model.showProvider` so custom-provider model names can render as `provider/Model Name` in the status line.
+- Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
 
 ### Fixed
 
 - Fixed relay `520` HTML pages and relay `insufficient_user_*` quota errors taking the wrong retry/fallback path.
 - Fixed the status line model segment dropping the provider prefix after metadata refreshes.
-- Fixed binary builds leaving generated legacy plugin registry files dirty in the source checkout.
+- Fixed retry fallback treating relay `520` HTML error pages as model failures; these transient proxy responses now retry on the same model instead of switching providers.
+- Fixed retry fallback failing to advance to the next model on relay `insufficient_user_*` quota errors.
+- Fixed the status line model segment dropping the provider prefix after model metadata refreshes; provider names now remain visible unless `statusLine.segmentOptions.model.showProvider` is explicitly disabled.
+- Fixed `omitThinking` settings propagation so settings-aware streams request hidden thinking summaries when users explicitly enable the option.
+- Fixed Zen prerelease builds checking the upstream `@oh-my-pi/pi-coding-agent` stable channel and falsely reporting `16.3.6` as newer than `16.3.6-zen.N`.
+- Fixed the model selector offering `Add ROLE fallback` for a model that is already present in that role's ordered fallback chain.
 
 ## [16.3.12] - 2026-07-08
+
 ### Added
 
 - Added `omp auth-broker import` support for CPA Codex access-token-only JSON credentials.
@@ -75,28 +88,10 @@
 - Fixed TTSR stream interrupts so only the tool call whose stream matched a rule receives the rule-named abort result; sibling tool-call placeholders now use a neutral abort reason ([#2783](https://github.com/can1357/oh-my-pi/issues/2783)).
 
 ## [16.3.11] - 2026-07-06
-### Fixed
-
-- Fixed retry fallback treating relay `520` HTML error pages as model failures; these transient proxy responses now retry on the same model instead of switching providers.
-
-## [16.3.6-zen.3] - 2026-07-04
-
-### Changed
-
-- Improved session title generation reliability by moving to marker-based parsing for all models
-### Added
-
-- Added a `unicode-snapcompact` compaction strategy and `/compact unicode-snapcompact` mode that archive Unicode/CJK history through zpix-backed Snapcompact frames while leaving the legacy `snapcompact` strategy unchanged; the benchmark/experiment harness lives at [cagedbird043/cjk-visual-context-bench](https://github.com/cagedbird043/cjk-visual-context-bench).
-- Added `snapcompact.unicodeShape` to select Unicode Snapcompact's zpix quality or density preset independently from the legacy `snapcompact.shape` setting.
 
 ### Fixed
 
-- Fixed session titles occasionally showing raw `{"title": "..."}` JSON. Online title generation now always uses the `<title>...</title>` marker prompt instead of a forced `set_title` tool call — hosts that ignored or rejected forced `tool_choice` echoed the prompt's JSON example verbatim as the title — and JSON-shaped responses (bare, code-fenced, marker-wrapped, or truncated) are unwrapped to the bare title.
-- Fixed Linux startup prompt construction to read the CPU model from `/proc/cpuinfo` instead of `os.cpus()`, avoiding per-core sysfs frequency probes on many-core hosts ([#4712](https://github.com/can1357/oh-my-pi/issues/4712)).
-- Fixed llama.cpp model discovery to honor per-model `architecture.input_modalities` from `/v1/models`, so router presets that advertise image input are no longer treated as text-only ([#4719](https://github.com/can1357/oh-my-pi/issues/4719)).
 - Fixed retry fallback treating relay `520` HTML error pages as model failures; these transient proxy responses now retry on the same model instead of switching providers.
-- Fixed retry fallback failing to advance to the next model on relay `insufficient_user_*` quota errors.
-- Fixed the status line model segment dropping the provider prefix after model metadata refreshes; provider names now remain visible unless `statusLine.segmentOptions.model.showProvider` is explicitly disabled.
 
 ## [16.3.10] - 2026-07-06
 
@@ -201,6 +196,18 @@
 - Surfaced unexpected JS eval worker exits via close listeners to prevent silent hangs.
 - Cached failed `!command` config resolutions and timed out extension dynamic model fetches after 15 seconds.
 
+## [16.3.6-zen.3] - 2026-07-04
+
+### Changed
+
+- Improved session title generation reliability by moving to marker-based parsing for all models
+
+### Fixed
+
+- Fixed session titles occasionally showing raw `{"title": "..."}` JSON. Online title generation now always uses the `<title>...</title>` marker prompt instead of a forced `set_title` tool call — hosts that ignored or rejected forced `tool_choice` echoed the prompt's JSON example verbatim as the title — and JSON-shaped responses (bare, code-fenced, marker-wrapped, or truncated) are unwrapped to the bare title.
+- Fixed Linux startup prompt construction to read the CPU model from `/proc/cpuinfo` instead of `os.cpus()`, avoiding per-core sysfs frequency probes on many-core hosts ([#4712](https://github.com/can1357/oh-my-pi/issues/4712)).
+- Fixed llama.cpp model discovery to honor per-model `architecture.input_modalities` from `/v1/models`, so router presets that advertise image input are no longer treated as text-only ([#4719](https://github.com/can1357/oh-my-pi/issues/4719)).
+
 ## [16.3.6] - 2026-07-04
 
 ### Changed
@@ -218,15 +225,6 @@
 - Fixed turn-ending provider errors rendering with a doubled blank gap above the `Error:` block (caller and error block each added a spacer).
 - Fixed the write tool renderer crashing when persisted runtime content is a truthy non-string value; rendering now coerces display content before Windows CR normalization. ([#4495](https://github.com/can1357/oh-my-pi/issues/4495))
 - Fixed cmux-backend `browser({action:"run"})` calls crashing the entire process with an unhandled rejection when the tab was released mid-run (e.g. a sibling subagent calling `browser({action:"close", all:true})` or a session-scoped tab reap). `runInTabWithSnapshot` in `tab-supervisor.ts` creates a `Promise.withResolvers()` triple so `releaseTab` can signal in-flight runs, but the cmux branch used to await `runCmuxCode(...)` directly and never awaited the local promise. When `releaseTab` rejected that orphaned promise ("Tab ... was closed"), Bun surfaced it as an unhandled rejection and the top-level handler tore the whole session down, killing every other tab and subagent sharing it. Both backends now await the same `promise` (so `pending.reject` always has an attached handler AND the caller sees `Tab "..." was closed` immediately instead of blocking to the run's timeout), and a new `pending.closeAc` is composed into the cmux run's abort signal so `wait(...)`, in-flight cmux socket calls, and the facade proxies unwind promptly when the tab is closed rather than leaking to their own timeout ([#4499](https://github.com/can1357/oh-my-pi/issues/4499)).
-- Fixed `omitThinking` settings propagation so settings-aware streams request hidden thinking summaries when users explicitly enable the option.
-- Fixed Zen prerelease builds checking the upstream `@oh-my-pi/pi-coding-agent` stable channel and falsely reporting `16.3.6` as newer than `16.3.6-zen.N`.
-- Fixed the model selector offering `Add ROLE fallback` for a model that is already present in that role's ordered fallback chain.
-
-### Added
-- Added ordered model role chains: comma-separated `modelRoles.<role>` entries now act as provider fallback chains, and the model selector shows/edit them with zero-based badges like `ROLE#0`, `ROLE#1`, etc.
-- Added `statusLine.segmentOptions.model.showProvider` so custom-provider model names can render as `provider/Model Name` in the status line.
-
-- Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
 
 ## [16.3.5] - 2026-07-04
 
