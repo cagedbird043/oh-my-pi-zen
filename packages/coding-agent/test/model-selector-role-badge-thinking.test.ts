@@ -33,7 +33,7 @@ function isSelectedMenuLine(line: string): boolean {
 }
 
 function selectMenuAction(selector: ModelSelectorComponent, label: string): void {
-	for (let attempt = 0; attempt < 20; attempt++) {
+	for (let attempt = 0; attempt < 80; attempt++) {
 		const selectedTarget = stripVTControlCharacters(selector.render(220).join("\n"))
 			.split("\n")
 			.find(line => line.includes(label) && isSelectedMenuLine(line));
