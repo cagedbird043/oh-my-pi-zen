@@ -33,6 +33,18 @@ This checkout is maintained as **Oh My Pi Zen** on `zen/main`, but source packag
 - **Mainline discipline**: Do not experiment directly on `zen/main`. Build and dogfood new Zen features on a feature branch, then squash-merge one coherent commit to `zen/main` after verification. This keeps CI usage low, avoids repeated mainline force-pushes, and keeps downstream history reviewable.
 - **Commit hygiene**: Keep `zen/main` history PR-like. Squash dogfood fixes into coherent topic commits before integration. Do not leave temporary fixup commits in the long-lived patch stack.
 
+### Upstream Sync Procedure
+
+When refreshing Zen after upstream advances, rebuild the downstream stack instead of merging upstream into the old `zen/main`.
+
+1. Fetch upstream and start a clean sync branch/worktree from current `upstream/main` or the next upstream release tag.
+2. Replay only live downstream patches in order: Zen release identity/workflow, still-open upstream PR patches, Zen-only runtime features, Unicode Snapcompact, docs/changelog wording, generated-file refresh, then release bump last.
+3. Drop patches already merged upstream before replaying the rest; do not keep duplicate downstream commits for upstreamed fixes.
+4. Do not preserve release-bump commits from old releases on `zen/main`; released artifacts are anchored by `zen/v<version>` tags and npm versions.
+5. Regenerate tracked generated files against the new base instead of blindly cherry-picking old generated output.
+6. Verify the sync branch with focused tests plus `bun check`; only then update `zen/main`, using `--force-with-lease` when replacing history is an explicit cleanup decision.
+7. Never move an existing release tag during stack cleanup. Create a new release tag only from the final release bump commit.
+
 ## GitHub
 
 Unless user tells you exactly what to write:
