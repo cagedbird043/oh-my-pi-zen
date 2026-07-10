@@ -103,18 +103,19 @@ const nativeAndIntegrationPackages = [
 // and is outside every CI TS bucket.
 const localOnlyWorkspacePackages = ["packages/mnemopi", "python/robomp/web"];
 
-// Repo-level script tests. CI's `workspace` bucket only runs the merge gates:
-// the concurrency regression (the GHA-config guard) and the .d.ts extension
-// rewrite (guards published-type resolution; hermetic temp-dir suite). A local
-// full run also exercises the release-notes and link-omp tests. (A
-// `ci-test-ts.test.ts` entry used to sit here but the file never existed — bun
-// silently ignores unmatched filters when at least one other filter matches.)
+// Repo-level script tests. CI's `workspace` bucket runs the merge gates:
+// workflow concurrency, published-type resolution, and the Zen changelog
+// baseline regression. A local full run also exercises release-notes and
+// link-omp tests. (A `ci-test-ts.test.ts` entry used to sit here but the file
+// never existed — bun silently ignores unmatched filters when at least one
+// other filter matches.)
 const repoScriptTests = [
 	"scripts/ci-concurrency.test.ts",
 	"scripts/ci-build-native.test.ts",
 	"scripts/ci-release-notes.test.ts",
 	"scripts/fix-dts-extensions.test.ts",
 	"scripts/link-omp.test.ts",
+	"scripts/zen/release.test.ts",
 ];
 
 const codingAgentNativePathPatterns = [
@@ -348,6 +349,7 @@ async function commandsForMode(mode: Mode): Promise<TestCommand[]> {
 						"scripts/ci-concurrency.test.ts",
 						"scripts/ci-build-native.test.ts",
 						"scripts/fix-dts-extensions.test.ts",
+						"scripts/zen/release.test.ts",
 					],
 				},
 			];
