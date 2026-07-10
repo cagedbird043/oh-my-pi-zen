@@ -24,6 +24,12 @@ function opaque429Error(): Error & { status: number } {
 	return Object.assign(new Error(""), { status: 429 });
 }
 
+function inactiveWorkspaceMemberError(): Error & { status: number } {
+	return Object.assign(new Error("Personal access token owner is not an active member of the selected workspace."), {
+		status: 403,
+	});
+}
+
 describe("isApiKeyResolver / resolveApiKeyOnce", () => {
 	it("narrows resolver vs static key and resolves the initial value", async () => {
 		expect(isApiKeyResolver("static")).toBe(false);
@@ -83,6 +89,7 @@ describe("isAuthRetryableError", () => {
 			),
 		).toBe(true);
 		expect(isAuthRetryableError(authError(403))).toBe(false);
+		expect(isAuthRetryableError(inactiveWorkspaceMemberError())).toBe(true);
 		expect(isAuthRetryableError(authError(500))).toBe(false);
 		expect(isAuthRetryableError(new Error("network blip"))).toBe(false);
 		expect(isAuthRetryableError(undefined)).toBe(false);
