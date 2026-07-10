@@ -2,11 +2,7 @@
 
 ## [Unreleased]
 
-### Fixed
-
-- Fixed plain-text 5xx provider status messages (including relay `520` HTML pages) being left as non-retryable numeric statuses instead of transient retryable errors.
-
-## [16.3.6-zen.3] - 2026-07-04
+## [16.3.15-zen.1] - 2026-07-10
 
 ### Added
 
@@ -14,8 +10,7 @@
 
 ### Fixed
 
-- Fixed `subscription quota insufficient` / `额度不足` provider errors being classified as generic 403 failures instead of usage-limit errors, so model-role fallback chains can advance to the next provider.
-
+- Fixed plain-text 5xx provider status messages (including relay `520` HTML pages) being left as non-retryable numeric statuses instead of transient retryable errors.
 
 ## [16.3.15] - 2026-07-09
 
@@ -114,6 +109,16 @@
 - Fixed Anthropic Claude reasoning and thinking replay handling. Same-model replays now drop unsigned prior reasoning blocks to prevent reasoning-extraction refusals, while cross-model replays (including Bedrock cross-region profiles) correctly demote reasoning without emitting raw thinking tags or causing text-flattening formatting issues.
 - Fixed custom OpenAI-compatible relays serving standard OpenAI model IDs to be correctly classified as OpenAI-family targets for fast mode.
 
+## [16.3.6-zen.3] - 2026-07-04
+
+### Added
+
+- Added `anysearch` registry provider definition and interactive credentials login support.
+
+### Fixed
+
+- Fixed `subscription quota insufficient` / `额度不足` provider errors being classified as generic 403 failures instead of usage-limit errors, so model-role fallback chains can advance to the next provider.
+
 ## [16.3.6] - 2026-07-04
 
 ### Added
@@ -124,9 +129,6 @@
 
 - Fixed Anthropic credential selection sampling Fable/Mythos-exhausted accounts on every new session: a Fable/Mythos weekly cap now proactively hard-blocks the credential when confirmed exhausted (server `exhausted` status or used fraction >= 1) with a live `resetsAt`, and a live Fable 429 extends the reactive block to the confirmed tier reset instead of the 60s default. Unconfirmed rows (missing/expired reset, below cap) remain ranking hints only, preserving the false-100% guard.
 - Fixed Ollama/Ollama Cloud tool requests failing with HTTP 400 by rewriting boolean subschemas (`true`/`false`) into a value-widening `anyOf` union of primitive types, stripping boolean `additionalProperties`/`unevaluatedProperties`, and flattening nullable `type` arrays before serializing tool parameters, so unconstrained fields still advertise "any JSON value" to grammar-constrained samplers (llama.cpp) instead of collapsing to an empty object. ([#4488](https://github.com/can1357/oh-my-pi/issues/4488))
-### Added
-
-- Added `anysearch` registry provider definition and interactive credentials login support.
 
 ## [16.3.5] - 2026-07-04
 
