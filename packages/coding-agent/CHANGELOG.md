@@ -260,6 +260,7 @@
 ### Fixed
 
 - Fixed Zen release changelog generation re-listing previously released downstream changes after an upstream history rebuild; `/changelog` now reports only changes since the previous Zen release.
+- Fixed missing-credential errors referring to every authentication method as an API key; OAuth providers now report a missing usable authentication credential without asking OAuth users to configure an API key.
 
 ## [16.3.15-zen.1] - 2026-07-10
 
