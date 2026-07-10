@@ -360,6 +360,11 @@
 - Fixed context promotion documentation to accurately reflect the `contextPromotionTarget` runtime behavior and `contextPromotion.enabled` default. (#5163)
 
 ## [16.4.3] - 2026-07-11
+### Fixed
+
+- Fixed Zen release changelog generation re-listing previously released downstream changes after an upstream history rebuild; `/changelog` now reports only changes since the previous Zen release.
+
+## [16.3.15-zen.1] - 2026-07-10
 
 ### Added
 
