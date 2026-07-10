@@ -2,6 +2,9 @@ import { extractHttpStatusFromError } from "@oh-my-pi/pi-utils";
 import { isOAuthExpiry, isUsageLimit } from "./flags";
 import { isUsageLimitOutcome } from "./rate-limit";
 
+const CODEX_INACTIVE_WORKSPACE_MEMBER_PATTERN =
+	/\bpersonal access token owner is not an active member of (?:the )?selected workspace\b/i;
+
 /**
  * Whether an OAuth refresh failure is definitive (the credential must be
  * disabled) versus transient. Thin alias over the {@link Flag.OAuthExpiry}
@@ -26,11 +29,11 @@ export function isInvalidatedOAuthTokenError(error: unknown): boolean {
 
 /**
  * Whether an upstream failure should rotate to a sibling credential: a hard
- * `401`, a body-classified usage limit (Codex `usage_limit_reached`, Anthropic
- * account rate-limit, Google `resource_exhausted`, OpenAI `insufficient_quota`,
- * …), or a bare `429` whose payload did not preserve a richer quota code.
- * Transient 429s (`Too many requests`, per-minute caps) stay in the
- * upstream-backoff lane.
+ * `401`, a credential-specific Codex workspace-membership rejection, a
+ * body-classified usage limit (Codex `usage_limit_reached`, Anthropic account
+ * rate-limit, Google `resource_exhausted`, OpenAI `insufficient_quota`, …), or
+ * a bare `429` whose payload did not preserve a richer quota code. Transient
+ * 429s (`Too many requests`, per-minute caps) stay in the upstream-backoff lane.
  */
 export function isAuthRetryableError(error: unknown): boolean {
 	if (isUsageLimit(error)) return true;
@@ -38,6 +41,7 @@ export function isAuthRetryableError(error: unknown): boolean {
 	const httpStatus = extractHttpStatusFromError(error);
 	if (httpStatus === 401) return true;
 	const message = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+	if (message && CODEX_INACTIVE_WORKSPACE_MEMBER_PATTERN.test(message)) return true;
 	const embeddedStatus = message ? extractHttpStatusFromError({ message }) : undefined;
 	if (embeddedStatus === 401) return true;
 	return isUsageLimitOutcome(httpStatus ?? embeddedStatus, message);
