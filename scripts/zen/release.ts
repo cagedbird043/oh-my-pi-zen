@@ -8,8 +8,8 @@ const packageJsonGlob = new Glob("packages/*/package.json");
 const cargoTomlGlob = new Glob("crates/*/Cargo.toml");
 const zenVersionPattern = /^\d+\.\d+\.\d+-zen\.\d+$/;
 
-function git(args: readonly string[]) {
-	return $`git -c core.fsmonitor=false -c core.untrackedCache=false -c fetch.pruneTags=false ${args}`;
+function git(args: readonly string[], cwd = ".") {
+	return $`git -c core.fsmonitor=false -c core.untrackedCache=false -c fetch.pruneTags=false ${args}`.cwd(cwd);
 }
 
 async function watchCI(): Promise<boolean> {
@@ -107,6 +107,18 @@ async function nextZenVersion(): Promise<string> {
 	return `${baseVersion}-zen.${next}`;
 }
 
+export async function latestZenReleaseTag(repoRoot: string): Promise<string | undefined> {
+	return (await git(["tag", "--list", "zen/v*-zen.*", "--sort=-v:refname"], repoRoot).text())
+		.split(/\r?\n/)
+		.map(line => line.trim())
+		.find(Boolean);
+}
+
+export async function runZenChangelogFixer(repoRoot: string) {
+	const previousZenTag = await latestZenReleaseTag(repoRoot);
+	return runChangelogFixer({ repoRoot, since: previousZenTag });
+}
+
 async function updateJsonVersion(filePath: string, version: string): Promise<{ name?: string; private?: boolean }> {
 	const manifest = (await Bun.file(filePath).json()) as { name?: string; private?: boolean; version?: string };
 	manifest.version = version;
@@ -169,10 +181,7 @@ async function cmdRelease(versionArg: string, options: { watchCi: boolean }): Pr
 	const tagName = `zen/v${version}`;
 	const existingTag = await git(["tag", "--list", tagName]).text();
 	if (existingTag.trim()) throw new Error(`Tag already exists: ${tagName}`);
-	const latestMatchingTag = (await git(["tag", "--list", "zen/v*-zen.*", "--sort=-v:refname"]).text())
-		.split(/\r?\n/)
-		.map(line => line.trim())
-		.find(Boolean);
+	const latestMatchingTag = await latestZenReleaseTag(".");
 	if (latestMatchingTag) {
 		const latestVersion = latestMatchingTag.replace(/^zen\/v/, "");
 		if (compareZenVersions(version, latestVersion) <= 0) {
@@ -205,7 +214,7 @@ async function cmdRelease(versionArg: string, options: { watchCi: boolean }): Pr
 	await $`cargo generate-lockfile`;
 
 	console.log("Updating CHANGELOGs...");
-	const fixResult = await runChangelogFixer({});
+	const fixResult = await runZenChangelogFixer(".");
 	for (const fixed of fixResult.changedFiles) {
 		console.log(`  Fixed ${fixed.path}`);
 	}
@@ -238,18 +247,23 @@ async function cmdWatch(): Promise<void> {
 	process.exit(success ? 0 : 1);
 }
 
-const args = process.argv.slice(2);
-const arg = args[0];
-const watchCi = !args.includes("--no-watch");
-if (!arg) {
-	console.error("Usage:");
-	console.error("  bun scripts/zen/release.ts <version|next> [--no-watch]   Full Zen release");
-	console.error("  bun scripts/zen/release.ts watch                         Watch CI for current commit");
-	process.exit(1);
+export async function main(args: readonly string[] = process.argv.slice(2)): Promise<void> {
+	const arg = args[0];
+	const watchCi = !args.includes("--no-watch");
+	if (!arg) {
+		console.error("Usage:");
+		console.error("  bun scripts/zen/release.ts <version|next> [--no-watch]   Full Zen release");
+		console.error("  bun scripts/zen/release.ts watch                         Watch CI for current commit");
+		process.exit(1);
+	}
+
+	if (arg === "watch") {
+		await cmdWatch();
+	} else {
+		await cmdRelease(arg, { watchCi });
+	}
 }
 
-if (arg === "watch") {
-	await cmdWatch();
-} else {
-	await cmdRelease(arg, { watchCi });
+if (import.meta.main) {
+	await main();
 }
