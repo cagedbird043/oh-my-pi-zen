@@ -13,6 +13,9 @@
 - Fixed plain-text 5xx provider status messages (including relay `520` HTML pages) being left as non-retryable numeric statuses instead of transient retryable errors.
 
 ## [16.3.6-zen.3] - 2026-07-04
+- Fixed GPT-5.6 Sol/Luna OAuth routing rejecting healthy ChatGPT K-12 accounts when a paid sibling became exhausted, which could incorrectly surface a missing-credential error despite valid Codex logins.
+
+## [16.3.15-zen.1] - 2026-07-10
 
 ### Added
 
