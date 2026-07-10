@@ -265,6 +265,43 @@ describe("streamSimple resolver auth retry", () => {
 		expect(keys).toEqual(["old-key", "refresh-key", "switch-key"]);
 	});
 
+	it("switches accounts when a Codex token owner is not an active workspace member", async () => {
+		const keys: unknown[] = [];
+		const workspaceErrorMessage = "Personal access token owner is not an active member of the selected workspace.";
+		registerCustomApi(
+			API,
+			(_model: Model<Api>, _context: Context, options?: SimpleStreamOptions) => {
+				pushKey(keys, options);
+				const stream = new AssistantMessageEventStream();
+				queueMicrotask(() => {
+					if (options?.apiKey === "switch-key") {
+						ok(stream);
+						return;
+					}
+					stream.push({ type: "start", partial: assistant() });
+					stream.push({
+						type: "error",
+						reason: "error",
+						error: assistantError(workspaceErrorMessage, 403),
+					});
+				});
+				return stream;
+			},
+			SOURCE_ID,
+		);
+
+		const stream = streamSimple(model(), context, {
+			apiKey: async ctx =>
+				ctx.error === undefined ? "workspace-key" : ctx.lastChance ? "switch-key" : "refreshed-workspace-key",
+		});
+		for await (const _event of stream) {
+			// drain
+		}
+
+		expect((await stream.result()).content).toEqual([{ type: "text", text: "ok" }]);
+		expect(keys).toEqual(["workspace-key", "refreshed-workspace-key", "switch-key"]);
+	});
+
 	it("skips the refresh-same step when the resolver returns an unchanged key", async () => {
 		const keys: unknown[] = [];
 		registerCustomApi(

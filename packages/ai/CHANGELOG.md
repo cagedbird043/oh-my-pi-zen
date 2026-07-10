@@ -14,6 +14,7 @@
 
 ## [16.3.6-zen.3] - 2026-07-04
 - Fixed GPT-5.6 Sol/Luna OAuth routing rejecting healthy ChatGPT K-12 accounts when a paid sibling became exhausted, which could incorrectly surface a missing-credential error despite valid Codex logins.
+- Fixed Codex OAuth multi-account routing not switching away from credentials rejected because the personal access token owner is not an active member of the selected workspace; this account-specific `403` now follows the normal refresh-then-sibling rotation path while unrelated `403` responses remain non-rotatable.
 
 ## [16.3.15-zen.1] - 2026-07-10
 
