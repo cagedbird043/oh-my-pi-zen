@@ -7866,9 +7866,9 @@ export class AgentSession {
 	 * - Handles extension commands (registered via pi.registerCommand) immediately, even during streaming
 	 * - Expands file-based prompt templates by default
 	 * - During streaming, queues via steer() or followUp() based on streamingBehavior option
-	 * - Validates model and API key before sending (when not streaming)
+	 * - Validates model and authentication credentials before sending (when not streaming)
 	 * @throws Error if streaming and no streamingBehavior specified
-	 * @throws Error if no model selected or no API key available (when not streaming)
+	 * @throws Error if no model or usable authentication credential is available (when not streaming)
 	 */
 	/**
 	 * Returns `false` when the command was fully handled locally (extension or
@@ -8090,17 +8090,17 @@ export class AgentSession {
 			if (!this.model) {
 				throw new Error(
 					"No model selected.\n\n" +
-						`Use /login, set an API key environment variable, or create ${getAgentDbPath()}\n\n` +
+						`Use /login or configure provider credentials in ${getAgentDbPath()}\n\n` +
 						"Then use /model to select a model.",
 				);
 			}
 
-			// Validate API key
+			// Validate authentication credential (OAuth access token or static API key)
 			const apiKey = await this.#modelRegistry.getApiKey(this.model, this.sessionId);
 			if (!apiKey) {
 				throw new Error(
-					`No API key found for ${this.model.provider}.\n\n` +
-						`Use /login, set an API key environment variable, or create ${getAgentDbPath()}`,
+					`No usable authentication credential found for ${this.model.provider}.\n\n` +
+						`Use /login or check the stored credentials in ${getAgentDbPath()}`,
 				);
 			}
 
@@ -9284,7 +9284,7 @@ export class AgentSession {
 	 * always take effect; if the current transcript is too large for the target
 	 * model, the next prompt's compaction/error path owns that recovery instead
 	 * of leaving the session pinned to the old model.
-	 * @throws Error if no API key available for the model
+	 * @throws Error if no authentication credential is configured for the model
 	 */
 	async setModel(
 		model: Model,
@@ -9298,7 +9298,7 @@ export class AgentSession {
 	): Promise<{ switched: boolean }> {
 		const previousEditMode = this.#resolveActiveEditMode();
 		if (!this.#modelRegistry.hasConfiguredAuth(model)) {
-			throw new Error(`No API key for ${model.provider}/${model.id}`);
+			throw new Error(`No authentication credential configured for ${model.provider}/${model.id}`);
 		}
 
 		const targetModel = await this.#modelRegistry.refreshSelectedModelMetadata(model);
@@ -9327,7 +9327,7 @@ export class AgentSession {
 	 * Validates that a credential source is configured (synchronously, without
 	 * refreshing OAuth or running command-backed key programs), saves to session
 	 * log but NOT to settings.
-	 * @throws Error if no API key available for the model
+	 * @throws Error if no authentication credential is configured for the model
 	 */
 	async setModelTemporary(
 		model: Model,
@@ -9336,7 +9336,7 @@ export class AgentSession {
 	): Promise<void> {
 		const previousEditMode = this.#resolveActiveEditMode();
 		if (!this.#modelRegistry.hasConfiguredAuth(model)) {
-			throw new Error(`No API key for ${model.provider}/${model.id}`);
+			throw new Error(`No authentication credential configured for ${model.provider}/${model.id}`);
 		}
 
 		const targetModel = await this.#modelRegistry.refreshSelectedModelMetadata(model);
@@ -9529,7 +9529,7 @@ export class AgentSession {
 
 		const apiKey = await this.#modelRegistry.getApiKey(nextModel, this.sessionId);
 		if (!apiKey) {
-			throw new Error(`No API key for ${nextModel.provider}/${nextModel.id}`);
+			throw new Error(`No usable authentication credential found for ${nextModel.provider}/${nextModel.id}`);
 		}
 
 		this.#modelRegistry.clearSuppressedSelector(formatModelStringWithRouting(nextModel));
@@ -10524,7 +10524,7 @@ export class AgentSession {
 			}
 			const apiKey = await this.#modelRegistry.getApiKey(model, this.sessionId);
 			if (!apiKey) {
-				throw new Error(`No API key for ${model.provider}`);
+				throw new Error(`No usable authentication credential found for ${model.provider}`);
 			}
 
 			// Build the handoff request through the SAME pipeline a live turn uses
@@ -14136,7 +14136,7 @@ export class AgentSession {
 		}
 		const apiKey = await this.#modelRegistry.getApiKey(candidate, this.sessionId);
 		if (!apiKey) {
-			throw new Error(`No API key for retry fallback ${selector.raw}`);
+			throw new Error(`No usable authentication credential found for retry fallback ${selector.raw}`);
 		}
 
 		// Capture the configured selector (auto-aware) so a fallback chain preserves
@@ -15906,7 +15906,7 @@ export class AgentSession {
 			const model = this.model!;
 			const apiKey = await this.#modelRegistry.getApiKey(model, this.sessionId);
 			if (!apiKey) {
-				throw new Error(`No API key for ${model.provider}`);
+				throw new Error(`No usable authentication credential found for ${model.provider}`);
 			}
 			const branchSummarySettings = this.settings.getGroup("branchSummary");
 			const result = await generateBranchSummary(entriesToSummarize, {
