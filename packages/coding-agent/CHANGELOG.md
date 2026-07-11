@@ -300,6 +300,15 @@
 - Retain completed and abandoned tasks in session history for improved context on resume
 - Changed the Model Hub `retry-fallback` strip chip to append the model to the default fallback chain instead of prepending it, matching the chain-building order of the Roles view (already-registered models are a no-op).
 - Changed per-model perf recording (`recordModelPerf`) to be deferred like prompt history: samples are batched and written to `agent.db` in one transaction ~100ms later, keeping SQLite writes off the turn-completion hot path.
+### Added
+
+- Added structured compaction lifecycle diagnostics for start, Snapcompact render, archive persistence, and transcript reconstruction; diagnostics include frame counts, byte budgets, timing, and safe failure fingerprints without raw archive or error content.
+
+### Fixed
+
+- Fixed `unicode-snapcompact` losing its persisted archive summary from collapsed `Ctrl+O` history details; the archived-frame summary now appears after the compaction text without attaching PNG frames to the terminal transcript.
+
+## [16.4.3-zen.3] - 2026-07-11
 
 ### Fixed
 

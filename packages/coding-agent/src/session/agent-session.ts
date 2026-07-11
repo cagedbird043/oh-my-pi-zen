@@ -524,6 +524,15 @@ function stringProperty(value: object, key: string): string | undefined {
 	return typeof field === "string" ? field : undefined;
 }
 
+function compactionErrorTelemetry(error: unknown) {
+	const message = error instanceof Error ? error.message : String(error);
+	return {
+		errorType: error instanceof Error ? error.name : typeof error,
+		errorFingerprint: Bun.hash(message).toString(36),
+		errorMessageLength: message.length,
+	};
+}
+
 function reportFromRewindReportContent(content: string): string {
 	const marker = "\nReport:\n";
 	const index = content.lastIndexOf(marker);
@@ -10089,6 +10098,8 @@ export class AgentSession {
 		}
 		const compactionAbortController = new AbortController();
 		this.#compactionAbortController = compactionAbortController;
+		const compactionTraceId = Bun.randomUUIDv7();
+		const compactionStartedAt = performance.now();
 
 		try {
 			this.#disconnectFromAgent();
@@ -10139,6 +10150,19 @@ export class AgentSession {
 				}
 				throw new Error("Nothing to compact (session too small)");
 			}
+			logger.debug("compaction.start", {
+				traceId: compactionTraceId,
+				trigger: "manual",
+				requestedStrategy: compactionSettings.strategy,
+				effectiveStrategy: effectiveSettings.strategy,
+				mode: compactMode?.name,
+				provider: this.model.provider,
+				model: this.model.id,
+				tokensBefore: preparation.tokensBefore,
+				messagesToSummarize: preparation.messagesToSummarize.length,
+				turnPrefixMessages: preparation.turnPrefixMessages.length,
+				recentMessages: preparation.recentMessages.length,
+			});
 
 			let hookCompaction: CompactionResult | undefined;
 			let fromExtension = false;
@@ -10260,12 +10284,27 @@ export class AgentSession {
 					if (!shape) {
 						throw new Error("snapcompact shape was not resolved before rendering.");
 					}
+					const renderStartedAt = performance.now();
 					snapcompactResult = await snapcompact.compact(preparation, {
 						convertToLlm,
 						model: this.model,
 						shape,
 						...(unicodeSnapcompact ? { serializer: "unicode-event-stream" as const } : {}),
 						maxFrames,
+					});
+					const renderedArchive = snapcompact.getPreservedArchive(snapcompactResult.preserveData);
+					logger.debug("compaction.snapcompact.render.end", {
+						traceId: compactionTraceId,
+						trigger: "manual",
+						serializer: unicodeSnapcompact ? "unicode-event-stream" : "conversation",
+						maxFrames,
+						frames: renderedArchive?.frames.length ?? 0,
+						payloadBytes: renderedArchive ? snapcompact.frameDataBytes(renderedArchive.frames) : 0,
+						totalChars: renderedArchive?.totalChars ?? 0,
+						truncatedChars: renderedArchive?.truncatedChars ?? 0,
+						font: renderedArchive?.frames[0]?.font,
+						variant: renderedArchive?.frames[0]?.variant,
+						elapsedMs: Math.round(performance.now() - renderStartedAt),
 					});
 					const framePayloadBytes = this.#snapcompactFramePayloadBytes(snapcompactResult);
 					if (framePayloadBytes > snapcompact.FRAME_DATA_BYTES_BUDGET) {
@@ -10368,7 +10407,7 @@ export class AgentSession {
 				throw new CompactionCancelledError();
 			}
 
-			this.sessionManager.appendCompaction(
+			const compactionEntryId = this.sessionManager.appendCompaction(
 				summary,
 				shortSummary,
 				firstKeptEntryId,
@@ -10377,6 +10416,17 @@ export class AgentSession {
 				fromExtension,
 				preserveData,
 			);
+			const persistedArchive = snapcompact.getPreservedArchive(preserveData);
+			logger.debug("compaction.persist.end", {
+				traceId: compactionTraceId,
+				trigger: "manual",
+				compactionEntryId,
+				preserveDataKeys: preserveData ? Object.keys(preserveData) : [],
+				archivedFrames: persistedArchive?.frames.length ?? 0,
+				payloadBytes: persistedArchive ? snapcompact.frameDataBytes(persistedArchive.frames) : 0,
+				shortSummaryPresent: Boolean(shortSummary),
+				elapsedMs: Math.round(performance.now() - compactionStartedAt),
+			});
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.buildDisplaySessionContext();
 			this.agent.replaceMessages(sessionContext.messages);
@@ -10417,6 +10467,13 @@ export class AgentSession {
 			options?.onComplete?.(compactionResult);
 			return compactionResult;
 		} catch (error) {
+			logger.debug("compaction.end", {
+				traceId: compactionTraceId,
+				trigger: "manual",
+				outcome: compactionAbortController.signal.aborted ? "aborted" : "error",
+				...compactionErrorTelemetry(error),
+				elapsedMs: Math.round(performance.now() - compactionStartedAt),
+			});
 			const err = error instanceof Error ? error : new Error(String(error));
 			options?.onError?.(err);
 			throw error;
@@ -13007,6 +13064,8 @@ export class AgentSession {
 		const autoCompactionAbortController = new AbortController();
 		this.#autoCompactionAbortController = autoCompactionAbortController;
 		const autoCompactionSignal = autoCompactionAbortController.signal;
+		const compactionTraceId = Bun.randomUUIDv7();
+		const compactionStartedAt = performance.now();
 
 		try {
 			// Emit start AFTER the controller is installed so isCompacting is already true
@@ -13121,6 +13180,19 @@ export class AgentSession {
 				if (continuationScheduled) return COMPACTION_CHECK_CONTINUATION;
 				return noProgressDeadEnd ? COMPACTION_CHECK_BLOCK_AUTOMATIC_CONTINUATION : COMPACTION_CHECK_NONE;
 			}
+			logger.debug("compaction.start", {
+				traceId: compactionTraceId,
+				trigger: "auto",
+				reason,
+				requestedStrategy: compactionSettings.strategy,
+				effectiveStrategy: action,
+				provider: this.model.provider,
+				model: this.model.id,
+				tokensBefore: preparation.tokensBefore,
+				messagesToSummarize: preparation.messagesToSummarize.length,
+				turnPrefixMessages: preparation.turnPrefixMessages.length,
+				recentMessages: preparation.recentMessages.length,
+			});
 
 			let hookCompaction: CompactionResult | undefined;
 			let fromExtension = false;
@@ -13204,12 +13276,27 @@ export class AgentSession {
 						});
 						snapcompactBlocker = `${unicodeSnapcompact ? "unicode-snapcompact" : "snapcompact"}: kept history alone exceeds the context budget; using context-full auto-compaction instead.`;
 					} else {
+						const renderStartedAt = performance.now();
 						snapcompactResult = await snapcompact.compact(preparation, {
 							convertToLlm,
 							model: this.model,
 							shape,
 							...(unicodeSnapcompact ? { serializer: "unicode-event-stream" as const } : {}),
 							maxFrames,
+						});
+						const renderedArchive = snapcompact.getPreservedArchive(snapcompactResult.preserveData);
+						logger.debug("compaction.snapcompact.render.end", {
+							traceId: compactionTraceId,
+							trigger: "auto",
+							serializer: unicodeSnapcompact ? "unicode-event-stream" : "conversation",
+							maxFrames,
+							frames: renderedArchive?.frames.length ?? 0,
+							payloadBytes: renderedArchive ? snapcompact.frameDataBytes(renderedArchive.frames) : 0,
+							totalChars: renderedArchive?.totalChars ?? 0,
+							truncatedChars: renderedArchive?.truncatedChars ?? 0,
+							font: renderedArchive?.frames[0]?.font,
+							variant: renderedArchive?.frames[0]?.variant,
+							elapsedMs: Math.round(performance.now() - renderStartedAt),
 						});
 						const framePayloadBytes = this.#snapcompactFramePayloadBytes(snapcompactResult);
 						if (framePayloadBytes > snapcompact.FRAME_DATA_BYTES_BUDGET) {
@@ -13409,7 +13496,7 @@ export class AgentSession {
 				return COMPACTION_CHECK_NONE;
 			}
 
-			this.sessionManager.appendCompaction(
+			const compactionEntryId = this.sessionManager.appendCompaction(
 				summary,
 				shortSummary,
 				firstKeptEntryId,
@@ -13418,6 +13505,19 @@ export class AgentSession {
 				fromExtension,
 				preserveData,
 			);
+			const persistedArchive = snapcompact.getPreservedArchive(preserveData);
+			logger.debug("compaction.persist.end", {
+				traceId: compactionTraceId,
+				trigger: "auto",
+				reason,
+				effectiveStrategy: action,
+				compactionEntryId,
+				preserveDataKeys: preserveData ? Object.keys(preserveData) : [],
+				archivedFrames: persistedArchive?.frames.length ?? 0,
+				payloadBytes: persistedArchive ? snapcompact.frameDataBytes(persistedArchive.frames) : 0,
+				shortSummaryPresent: Boolean(shortSummary),
+				elapsedMs: Math.round(performance.now() - compactionStartedAt),
+			});
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.buildDisplaySessionContext();
 			this.agent.replaceMessages(sessionContext.messages);
@@ -13567,6 +13667,15 @@ export class AgentSession {
 			if (continuationScheduled) return COMPACTION_CHECK_CONTINUATION;
 			return noProgressDeadEnd ? COMPACTION_CHECK_BLOCK_AUTOMATIC_CONTINUATION : COMPACTION_CHECK_NONE;
 		} catch (error) {
+			logger.debug("compaction.end", {
+				traceId: compactionTraceId,
+				trigger: "auto",
+				reason,
+				effectiveStrategy: action,
+				outcome: autoCompactionSignal.aborted ? "aborted" : "error",
+				...compactionErrorTelemetry(error),
+				elapsedMs: Math.round(performance.now() - compactionStartedAt),
+			});
 			if (autoCompactionSignal.aborted) {
 				await this.#emitSessionEvent({
 					type: "auto_compaction_end",
