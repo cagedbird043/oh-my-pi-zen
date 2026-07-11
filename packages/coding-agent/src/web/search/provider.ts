@@ -153,7 +153,6 @@ const PROVIDER_META: Record<SearchProviderId, ProviderMeta> = {
 		id: "anysearch",
 		label: SEARCH_PROVIDER_LABELS.anysearch,
 		load: async () => new (await import("./providers/anysearch")).AnySearchProvider(),
-	}
 	},
 };
 
