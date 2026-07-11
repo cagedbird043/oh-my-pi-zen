@@ -31,6 +31,12 @@
 - Fixed remote compaction behavior for Codex Responses Lite (GPT-5.6 family) models across both V1 and V2 endpoints to ensure correct formatting and routing.
 - Fixed an issue where aborted tool-result hooks could trigger subsequent provider calls before the abort signal fully settled.
 
+## [16.3.15-zen.1] - 2026-07-10
+
+### Added
+
+- Added the `unicode-snapcompact` compaction strategy value for hosts that expose Unicode/CJK bitmap archive compaction.
+
 ## [16.3.12] - 2026-07-08
 
 ### Added
@@ -47,9 +53,6 @@
 ### Fixed
 
 - Fixed an issue where provider orchestration tokens were incorrectly included in context token calculations, which could trigger premature context auto-compaction and promotion.
-### Added
-
-- Added the `unicode-snapcompact` compaction strategy value for hosts that expose Unicode/CJK bitmap archive compaction.
 
 ## [16.3.3] - 2026-07-02
 
