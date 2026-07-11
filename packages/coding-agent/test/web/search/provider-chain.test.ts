@@ -3,6 +3,7 @@ import type { AuthStorage } from "@oh-my-pi/pi-ai";
 import { SelectorController } from "@oh-my-pi/pi-coding-agent/modes/controllers/selector-controller";
 import {
 	resolveProviderCandidates,
+	getSearchProvider,
 	resolveProviderChain,
 	setExcludedSearchProviders,
 	setPreferredSearchProvider,
@@ -106,5 +107,11 @@ describe("resolveProviderChain", () => {
 		} finally {
 			delete process.env.ANYSEARCH_API_KEY;
 		}
+	});
+
+	it("loads Startpage through the lazy provider boundary", async () => {
+		const provider = await getSearchProvider("startpage");
+		expect(provider.id).toBe("startpage");
+		expect(provider.label).toBe("Startpage");
 	});
 });
