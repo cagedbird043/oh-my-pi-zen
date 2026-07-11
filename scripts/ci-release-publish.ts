@@ -138,7 +138,6 @@ export const packages: PublishPackage[] = [
 		dir: "packages/coding-agent",
 		kind: "typescript",
 		preBuild: ignorePackScripts ? [["bun", "run", "prepack"]] : undefined,
-		postPack: ignorePackScripts ? [["bun", "run", "postpack"]] : undefined,
 		publishBin: codingAgentPublishBin,
 	},
 ];

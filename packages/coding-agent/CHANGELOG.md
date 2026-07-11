@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Zen npm publishing failing after a successful coding-agent publish because the release packer still invoked the removed `postpack` script.
+
 ## [16.4.3-zen.1] - 2026-07-11
 
 ### Fixed
