@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.4.3-zen.4] - 2026-07-11
+
 ### Added
 
 - Added structured compaction lifecycle diagnostics for start, Snapcompact render, archive persistence, and transcript reconstruction; diagnostics include frame counts, byte budgets, timing, and safe failure fingerprints without raw archive or error content.
