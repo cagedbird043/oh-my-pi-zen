@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.4.3-zen.1] - 2026-07-11
+
 ### Fixed
 
 - Fixed Zen release changelog generation re-listing previously released downstream changes after an upstream history rebuild; `/changelog` now reports only changes since the previous Zen release.

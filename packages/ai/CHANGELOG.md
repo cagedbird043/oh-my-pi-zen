@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [16.4.3-zen.1] - 2026-07-11
+
 ### Fixed
 
 - Fixed GPT-5.6 Sol/Luna OAuth routing rejecting healthy ChatGPT K-12 accounts when a paid sibling became exhausted, which could incorrectly surface a missing-credential error despite valid Codex logins.
