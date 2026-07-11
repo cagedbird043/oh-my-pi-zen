@@ -29,10 +29,16 @@ async function exists(filePath: string): Promise<boolean> {
 	}
 }
 
-async function runStep(label: string, command: readonly string[], cwd = rootDir): Promise<void> {
+async function runStep(
+	label: string,
+	command: readonly string[],
+	cwd = rootDir,
+	env: NodeJS.ProcessEnv = Bun.env,
+): Promise<void> {
 	console.log(label);
 	const proc = Bun.spawn(command, {
 		cwd,
+		env,
 		stdout: "inherit",
 		stderr: "inherit",
 	});
@@ -73,7 +79,16 @@ async function installTarget(name: (typeof targets)[number]): Promise<void> {
 async function smokeTarget(name: (typeof targets)[number]): Promise<void> {
 	const targetPath = path.join(binDir, name);
 	await runStep(`Smoke ${name} --version`, [targetPath, "--version"]);
-	await runStep(`Smoke ${name} --smoke-test`, [targetPath, "--smoke-test"]);
+	const smokeDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-zen-smoke-"));
+	try {
+		await runStep(`Smoke ${name} --smoke-test (isolated)`, [targetPath, "--smoke-test"], smokeDir, {
+			...Bun.env,
+			HOME: path.join(smokeDir, "home"),
+			XDG_DATA_HOME: path.join(smokeDir, "xdg"),
+		});
+	} finally {
+		await fs.rm(smokeDir, { recursive: true, force: true });
+	}
 }
 
 async function clearNativeCache(): Promise<void> {

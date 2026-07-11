@@ -27,6 +27,7 @@ import {
 import { declareWorkerHostEntry, installWorkerInbox } from "@oh-my-pi/pi-utils/worker-host";
 import { installProfileAlias, resolveProfileAliasCommandFromProcess } from "./cli/profile-alias";
 import { extractProfileFlags } from "./cli/profile-bootstrap";
+import { buildBrowserNavigationHeaders } from "./web/search/providers/browser-headers";
 
 if (Bun.semver.order(Bun.version, MIN_BUN_VERSION) < 0) {
 	process.stderr.write(
@@ -96,6 +97,8 @@ async function runSmokeTest(): Promise<void> {
 	const { getSearchProvider } = await import("./web/search/provider");
 	const startpageProvider = await getSearchProvider("startpage");
 	if (startpageProvider.id !== "startpage") throw new Error("Startpage provider smoke failed to load");
+	const headers = buildBrowserNavigationHeaders();
+	if (!headers["User-Agent"] || !headers.Accept) throw new Error("Browser header smoke failed to build a profile");
 
 	await smokeTestTinyTitleWorker();
 	await smokeTestSttWorker();
