@@ -23,6 +23,29 @@ import {
 } from "@oh-my-pi/pi-coding-agent/extensibility/custom-tools";
 import { removeWithRetries } from "@oh-my-pi/pi-utils";
 
+interface BoundToolApi {
+	cwd: string;
+	pushPendingAction: CustomToolAPI["pushPendingAction"];
+}
+
+function isBoundToolApi(value: unknown): value is BoundToolApi {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"cwd" in value &&
+		typeof value.cwd === "string" &&
+		"pushPendingAction" in value &&
+		typeof value.pushPendingAction === "function"
+	);
+}
+
+function boundApiFrom(tool: unknown): BoundToolApi {
+	if (typeof tool !== "object" || tool === null || !("__boundApi" in tool) || !isBoundToolApi(tool.__boundApi)) {
+		throw new Error("Expected custom tool to expose its bound API");
+	}
+	return tool.__boundApi;
+}
+
 describe("loadCustomTools per-session binding (#2190 review fix)", () => {
 	let tmp: string;
 	let toolPath: string;
@@ -61,8 +84,8 @@ describe("loadCustomTools per-session binding (#2190 review fix)", () => {
 		expect(parentResult.tools).toHaveLength(1);
 		expect(subagentResult.tools).toHaveLength(1);
 
-		const parentApi = (parentResult.tools[0]?.tool as unknown as { __boundApi: CustomToolAPI }).__boundApi;
-		const subagentApi = (subagentResult.tools[0]?.tool as unknown as { __boundApi: CustomToolAPI }).__boundApi;
+		const parentApi = boundApiFrom(parentResult.tools[0]?.tool);
+		const subagentApi = boundApiFrom(subagentResult.tools[0]?.tool);
 
 		expect(parentApi.cwd).toBe("/tmp/parent-cwd");
 		expect(subagentApi.cwd).toBe("/tmp/subagent-cwd");
@@ -82,10 +105,9 @@ describe("loadCustomTools per-session binding (#2190 review fix)", () => {
 			subagentLog.push(`subagent:${action.label}`),
 		);
 
-		const parentApi = (parentResult.tools[0]?.tool as unknown as { __boundApi: CustomToolAPI }).__boundApi;
-		const subagentApi = (subagentResult.tools[0]?.tool as unknown as { __boundApi: CustomToolAPI }).__boundApi;
+		const parentApi = boundApiFrom(parentResult.tools[0]?.tool);
+		const subagentApi = boundApiFrom(subagentResult.tools[0]?.tool);
 
-		// Cast: the test fixture exposes the runtime API verbatim.
 		parentApi.pushPendingAction({
 			label: "ping",
 			sourceToolName: "echo",

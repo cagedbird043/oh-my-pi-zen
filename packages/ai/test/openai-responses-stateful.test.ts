@@ -396,8 +396,10 @@ describe("openai-responses stateful chaining", () => {
 
 		expect(sentRequests).toHaveLength(2);
 		expect(sentRequests[0]?.store).toBe(false);
-		expect(sentRequests[1]?.store).toBe(false);
-		expect(sentRequests[1]?.previous_response_id).toBeUndefined();
-		expect((sentRequests[1]?.input as unknown[]).length).toBeGreaterThan(1);
+		const secondRequest = sentRequests[1];
+		if (!secondRequest || !Array.isArray(secondRequest.input)) throw new Error("Expected replay request input");
+		expect(secondRequest.store).toBe(false);
+		expect(secondRequest.previous_response_id).toBeUndefined();
+		expect(secondRequest.input.length).toBeGreaterThan(1);
 	});
 });

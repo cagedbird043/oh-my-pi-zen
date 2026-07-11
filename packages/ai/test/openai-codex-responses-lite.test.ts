@@ -665,12 +665,14 @@ describe("openai-codex Responses Lite and client metadata wire format", () => {
 		}).result();
 
 		expect(result.stopReason).toBe("stop");
-		expect(captured?.headers.get("x-openai-internal-codex-responses-lite")).toBe("true");
-		expect(captured?.headers.get("version")).toBe("0.144.1");
-		expect(captured?.body.reasoning).toEqual({ context: "all_turns" });
-		expect(captured?.body.instructions).toBeUndefined();
-		expect(captured?.body.tools).toBeUndefined();
-		expect((captured?.body.input as Array<Record<string, unknown>>)[0]?.type).toBe("additional_tools");
+		if (!captured) throw new Error("Expected Codex request");
+		expect(captured.headers.get("x-openai-internal-codex-responses-lite")).toBe("true");
+		expect(captured.headers.get("version")).toBe("0.144.1");
+		expect(captured.body.reasoning).toEqual({ context: "all_turns" });
+		expect(captured.body.instructions).toBeUndefined();
+		expect(captured.body.tools).toBeUndefined();
+		if (!Array.isArray(captured.body.input)) throw new Error("Expected Responses Lite input items");
+		expect(captured.body.input[0]?.type).toBe("additional_tools");
 	});
 
 	it("omits the lite marker while retaining canonical client_metadata", async () => {

@@ -268,8 +268,10 @@ describe("browser tab-supervisor — cmux tab close mid-run (#4499)", () => {
 			// to aborted. Without this line, the reviewer's failure mode
 			// stands: the run body keeps executing until its own timeout.
 			expect(capturedCloseAc?.signal.aborted).toBe(true);
-			expect(capturedCloseAc?.signal.reason).toBeInstanceOf(Error);
-			expect((capturedCloseAc?.signal.reason as Error).message).toMatch(/Tab "docfinal" was closed/);
+			if (!capturedCloseAc || !(capturedCloseAc.signal.reason instanceof Error)) {
+				throw new Error("Expected tab-close abort reason");
+			}
+			expect(capturedCloseAc.signal.reason.message).toMatch(/Tab "docfinal" was closed/);
 
 			// Caller-facing contract: `runInTab` rejects with the tab-close
 			// error immediately, not after the run's 60_000ms timeout.
