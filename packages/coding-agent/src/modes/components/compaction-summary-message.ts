@@ -112,10 +112,13 @@ export class CompactionSummaryMessageComponent implements Component {
 	#detailMarkdown(): string {
 		const tokenStr = this.message.tokensBefore.toLocaleString();
 		const frameCount = this.message.images?.length ?? 0;
-		const frameNote =
-			frameCount > 0 ? `\n\n_${frameCount} snapcompact frame${frameCount === 1 ? "" : "s"} attached_` : "";
+		const archiveNote = this.message.shortSummary
+			? `\n\n_${this.message.shortSummary}_`
+			: frameCount > 0
+				? `\n\n_${frameCount} snapcompact frame${frameCount === 1 ? "" : "s"} attached_`
+				: "";
 		const warningNote = this.message.warning ? `\n\n${theme.icon.warning} **Warning:** ${this.message.warning}` : "";
-		return `**Compacted from ${tokenStr} tokens**${warningNote}\n\n${this.message.summary}${frameNote}`;
+		return `**Compacted from ${tokenStr} tokens**${warningNote}\n\n${this.message.summary}${archiveNote}`;
 	}
 }
 
