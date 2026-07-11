@@ -285,6 +285,11 @@
 - Fixed the hover highlight sticking to the last hovered model row when the pointer moved into the provider sidebar
 
 ## [16.4.6] - 2026-07-12
+### Fixed
+
+- Fixed Zen npm publishing failing after a successful coding-agent publish because the release packer still invoked the removed `postpack` script.
+
+## [16.4.3-zen.1] - 2026-07-11
 
 ### Added
 
