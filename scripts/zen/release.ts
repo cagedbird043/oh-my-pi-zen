@@ -116,7 +116,11 @@ export async function latestZenReleaseTag(repoRoot: string): Promise<string | un
 
 export async function runZenChangelogFixer(repoRoot: string) {
 	const previousZenTag = await latestZenReleaseTag(repoRoot);
-	return runChangelogFixer({ repoRoot, since: previousZenTag });
+	const result = await runChangelogFixer({ repoRoot, since: previousZenTag });
+	if (previousZenTag) {
+		await runChangelogFixer({ repoRoot, since: previousZenTag, recover: true, recoveryTags: [previousZenTag] });
+	}
+	return result;
 }
 
 async function updateJsonVersion(filePath: string, version: string): Promise<{ name?: string; private?: boolean }> {
