@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { resetSettingsForTest, Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import {
+	CompactionSummaryMessageComponent,
 	createHandoffSummaryMessageComponent,
 	HandoffSummaryMessageComponent,
 } from "@oh-my-pi/pi-coding-agent/modes/components/compaction-summary-message";
 import { initTheme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
-import type { CustomMessage } from "@oh-my-pi/pi-coding-agent/session/messages";
+import type { CompactionSummaryMessage, CustomMessage } from "@oh-my-pi/pi-coding-agent/session/messages";
 
 beforeAll(async () => {
 	resetSettingsForTest();
@@ -69,5 +70,31 @@ describe("handoff summary divider", () => {
 		message.customType = "extension-note";
 
 		expect(createHandoffSummaryMessageComponent(message, false)).toBeUndefined();
+	});
+});
+
+describe("compaction summary divider", () => {
+	it("shows the persisted Snapcompact frame summary only when expanded", () => {
+		const shortSummary =
+			"Archived 55,191 chars of history onto 7 snapcompact frames (+1,427 chars tail, 0 truncated)";
+		const message: CompactionSummaryMessage = {
+			role: "compactionSummary",
+			summary: "Provider context summary",
+			shortSummary,
+			tokensBefore: 15_938,
+			timestamp: Date.now(),
+		};
+		const component = new CompactionSummaryMessageComponent(message);
+
+		const collapsed = Bun.stripANSI(component.render(160).join("\n"));
+		expect(collapsed).toContain("compacted");
+		expect(collapsed).not.toContain(shortSummary);
+		expect(collapsed).not.toContain("Provider context summary");
+
+		component.setExpanded(true);
+		const expanded = Bun.stripANSI(component.render(160).join("\n"));
+		expect(expanded).toContain(shortSummary);
+		expect(expanded).toContain("Provider context summary");
+		expect(expanded.indexOf(shortSummary)).toBeGreaterThan(expanded.indexOf("Provider context summary"));
 	});
 });
