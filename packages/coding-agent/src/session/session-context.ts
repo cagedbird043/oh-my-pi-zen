@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import { coerceServiceTierByFamily, type ProviderPayload, type ServiceTierByFamily } from "@oh-my-pi/pi-ai";
+import { logger } from "@oh-my-pi/pi-utils";
 import * as snapcompact from "@oh-my-pi/snapcompact";
 import {
 	createBranchSummaryMessage,
@@ -150,8 +151,25 @@ function snapcompactHistoryBlocksForContext(
 	options: BuildSessionContextOptions | undefined,
 ) {
 	if (!archive) return undefined;
-	if (options?.transcript && options.collapseCompactedHistory) return undefined;
-	return snapcompact.historyBlocks(archive, snapcompactHistoryBlockOptions(archive, options));
+	if (options?.transcript && options.collapseCompactedHistory) {
+		logger.debug("compaction.transcript.rebuild", {
+			collapseCompactedHistory: true,
+			archivedFrames: archive.frames.length,
+			attachedImages: 0,
+			totalChars: archive.totalChars,
+		});
+		return undefined;
+	}
+	const blocks = snapcompact.historyBlocks(archive, snapcompactHistoryBlockOptions(archive, options));
+	if (options?.transcript) {
+		logger.debug("compaction.transcript.rebuild", {
+			collapseCompactedHistory: false,
+			archivedFrames: archive.frames.length,
+			attachedImages: blocks.filter(block => block.type === "image").length,
+			totalChars: archive.totalChars,
+		});
+	}
+	return blocks;
 }
 
 export function getOpenAiRemoteCompactionPayload(

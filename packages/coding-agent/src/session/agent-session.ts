@@ -349,6 +349,7 @@ const PLAN_MODE_REMINDER_MAX = 3;
 const POST_PROMPT_DRAIN_TIMEOUT_MS = 5_000;
 
 
+
 /** Internal marker for hook messages queued through the agent loop */
 // ============================================================================
 // Constants
@@ -6577,6 +6578,7 @@ export class AgentSession {
 	}
 
 
+
 	/**
 	 * Cancel in-progress branch summarization.
 	 */
@@ -6958,6 +6960,7 @@ export class AgentSession {
 			}
 		}
 	}
+
 
 
 	// =========================================================================
