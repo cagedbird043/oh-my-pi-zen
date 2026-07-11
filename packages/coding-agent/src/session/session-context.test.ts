@@ -1,11 +1,16 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "bun:test";
 import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
+import { logger } from "@oh-my-pi/pi-utils";
 import * as snapcompact from "@oh-my-pi/snapcompact";
 import type { CompactionSummaryMessage } from "./messages";
 import { buildSessionContext, type StrippedToolCallsMarker } from "./session-context";
 import type { SessionEntry } from "./session-entries";
 
 const timestamp = "2026-07-09T00:00:00.000Z";
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 const compactedEntries = [
 	{
@@ -61,6 +66,22 @@ describe("buildSessionContext snapcompact archives", () => {
 
 		expect(summary.images).toBeUndefined();
 		expect(summary.blocks).toBeUndefined();
+	});
+
+	it("logs archived and attached frame counts for collapsed transcripts", () => {
+		const debugSpy = vi.spyOn(logger, "debug").mockImplementation(() => {});
+
+		buildSessionContext(compactedEntries, undefined, undefined, {
+			transcript: true,
+			collapseCompactedHistory: true,
+		});
+
+		expect(debugSpy).toHaveBeenCalledWith("compaction.transcript.rebuild", {
+			collapseCompactedHistory: true,
+			archivedFrames: 1,
+			attachedImages: 0,
+			totalChars: 100,
+		});
 	});
 
 	it("keeps snapcompact archive blocks in full transcript summaries", () => {
