@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed compiled binaries failing to instantiate the Startpage web-search provider by keeping its constructor in the static bundle graph.
+
 ## [16.4.3-zen.2] - 2026-07-11
 
 ### Fixed
