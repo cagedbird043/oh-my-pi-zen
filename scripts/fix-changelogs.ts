@@ -76,6 +76,7 @@ export interface RunChangelogFixerOptions {
 	since?: string;
 	write?: boolean;
 	recover?: boolean;
+	recoveryTags?: readonly string[];
 }
 
 export interface RunChangelogFixerResult {
@@ -781,11 +782,12 @@ async function gitMaybe(args: readonly string[], cwd: string): Promise<string | 
 async function collectHistoricalReleaseRecovery(
 	repoRoot: string,
 	paths: readonly string[],
+	tags?: readonly string[],
 ): Promise<Map<string, HistoricalReleaseRecovery>> {
-	const tags = await recoveryTags(repoRoot);
+	const selectedTags = tags ?? (await recoveryTags(repoRoot));
 	const recoveryByPath = new Map<string, HistoricalReleaseRecovery>();
 
-	for (const tag of tags) {
+	for (const tag of selectedTags) {
 		for (const changelogPath of paths) {
 			const content = await gitMaybe(["show", `${tag}:${changelogPath}`], repoRoot);
 			if (content === undefined) continue;
@@ -838,7 +840,7 @@ export async function runChangelogFixer(options: RunChangelogFixerOptions = {}):
 		? new Map<string, Set<number>>()
 		: collectPromotableAddedItemLines(await changelogDiff(repoRoot, since, paths));
 	const historicalRecoveryByPath = options.recover
-		? await collectHistoricalReleaseRecovery(repoRoot, paths)
+		? await collectHistoricalReleaseRecovery(repoRoot, paths, options.recoveryTags)
 		: new Map<string, HistoricalReleaseRecovery>();
 	const changedFiles: ChangedChangelogSummary[] = [];
 
