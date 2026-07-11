@@ -211,3 +211,5 @@ export class StartpageProvider extends SearchProvider {
 		return searchStartpage(params);
 	}
 }
+
+export default StartpageProvider;

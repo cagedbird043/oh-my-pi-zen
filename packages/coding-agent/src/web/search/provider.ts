@@ -10,7 +10,6 @@
 
 import type { AuthStorage } from "@oh-my-pi/pi-ai";
 import type { SearchProvider } from "./providers/base";
-import { StartpageProvider } from "./providers/startpage";
 import { SEARCH_PROVIDER_LABELS, SEARCH_PROVIDER_ORDER, SearchProviderError, type SearchProviderId } from "./types";
 
 export type { SearchParams } from "./providers/base";
@@ -138,7 +137,8 @@ const PROVIDER_META: Record<SearchProviderId, ProviderMeta> = {
 	startpage: {
 		id: "startpage",
 		label: SEARCH_PROVIDER_LABELS.startpage,
-		load: async () => new StartpageProvider(),
+		// Intentional lazy import: provider modules are runtime-selected from the registry.
+		load: async () => new (await import("./providers/startpage")).default(),
 	},
 	mojeek: {
 		id: "mojeek",

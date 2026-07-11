@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed compiled Startpage web search failing when its header-profile dependency tried to read unbundled runtime JSON assets; the provider now uses embedded browser profiles and retains its lazy module boundary.
+
 ## [16.4.3-zen.4] - 2026-07-11
 
 ### Added
