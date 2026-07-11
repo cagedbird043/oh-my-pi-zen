@@ -92,6 +92,11 @@ async function runSmokeTest(): Promise<void> {
 		statsServer.stop();
 	}
 
+	// Intentional lazy import: exercises the compiled provider-module boundary.
+	const { getSearchProvider } = await import("./web/search/provider");
+	const startpageProvider = await getSearchProvider("startpage");
+	if (startpageProvider.id !== "startpage") throw new Error("Startpage provider smoke failed to load");
+
 	await smokeTestTinyTitleWorker();
 	await smokeTestSttWorker();
 	await smokeTestJsEvalWorker();
