@@ -44,6 +44,7 @@ function makeSegmentContext(overrides: Partial<SegmentContext> = {}): SegmentCon
 		planMode: null,
 		loopMode: null,
 		goalMode: null,
+		vibeMode: null,
 		collab: null,
 		activeRepo: null,
 		usageStats: {

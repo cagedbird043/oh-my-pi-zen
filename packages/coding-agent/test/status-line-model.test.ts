@@ -8,10 +8,14 @@ beforeAll(async () => {
 	await initTheme();
 });
 
-function createModelContext(advisorActive: boolean): SegmentContext {
+function createModelContext(
+	advisorActive: boolean,
+	options: SegmentContext["options"] = {},
+	model = { id: "test-model", name: "Test Model" },
+): SegmentContext {
 	return {
 		session: {
-			state: { model: { id: "test-model", name: "Test Model" } },
+			state: { model },
 			isFastModeActive: () => false,
 			isAutoThinking: false,
 			autoResolvedThinkingLevel: () => undefined,
@@ -19,7 +23,7 @@ function createModelContext(advisorActive: boolean): SegmentContext {
 		} as unknown as SegmentContext["session"],
 		width: 120,
 		compactThinkingLevel: false,
-		options: {},
+		options,
 		planMode: null,
 		loopMode: null,
 		goalMode: null,
@@ -67,15 +71,16 @@ describe("status line model segment advisor badge", () => {
 	});
 });
 
-
 describe("status line model segment provider prefix", () => {
+	const model = { provider: "codez", id: "gpt-5.5", name: "GPT-5.5" };
+
 	it("shows provider prefix by default", () => {
-		const rendered = renderSegment("model", createModelContext(false));
+		const rendered = renderSegment("model", createModelContext(false, {}, model));
 		expect(Bun.stripANSI(rendered.content)).toContain("codez/GPT-5.5");
 	});
 
 	it("omits provider prefix only when explicitly disabled", () => {
-		const rendered = renderSegment("model", createModelContext(false, { model: { showProvider: false } }));
+		const rendered = renderSegment("model", createModelContext(false, { model: { showProvider: false } }, model));
 		const text = Bun.stripANSI(rendered.content);
 		expect(text).toContain("GPT-5.5");
 		expect(text).not.toContain("codez/GPT-5.5");
