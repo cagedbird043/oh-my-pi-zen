@@ -184,6 +184,7 @@ import {
 	parseModelString,
 	type ResolvedModelRoleValue,
 	resolveAdvisorRoleSelection,
+	resolveConfiguredModelPatterns,
 	resolveModelOverride,
 	resolveModelRoleValue,
 } from "../config/model-resolver";
@@ -14267,7 +14268,32 @@ export class AgentSession {
 				}
 			}
 		}
+		for (const role of Object.keys(this.settings.getModelRoles())) {
+			if (chains[role] !== undefined) continue;
+			const candidates = this.#resolveRoleRetryFallbackSelectors(role);
+			if (candidates.length > 1) {
+				chains[role] = candidates.slice(1).map(candidate => candidate.raw);
+			}
+		}
 		return chains;
+	}
+
+	#resolveRoleRetryFallbackSelectors(role: string): RetryFallbackSelector[] {
+		const configured = this.settings.getModelRole(role);
+		if (!configured) return [];
+		const selectors: RetryFallbackSelector[] = [];
+		for (const pattern of resolveConfiguredModelPatterns(configured, this.settings)) {
+			const resolved = resolveModelOverride([pattern], this.#modelRegistry, this.settings);
+			if (!resolved.model) continue;
+			const raw = resolved.explicitThinkingLevel
+				? formatModelSelectorValue(formatModelStringWithRouting(resolved.model), resolved.thinkingLevel)
+				: formatModelStringWithRouting(resolved.model);
+			const selector = parseRetryFallbackSelector(raw, this.#modelRegistry);
+			if (selector && !selectors.some(existing => existing.raw === selector.raw)) {
+				selectors.push(selector);
+			}
+		}
+		return selectors;
 	}
 
 	#validateRetryFallbackChains(): void {
@@ -14350,8 +14376,7 @@ export class AgentSession {
 	#getRetryFallbackPrimarySelector(role: string): RetryFallbackSelector | undefined {
 		if (isRetryFallbackWildcardKey(role)) return undefined;
 		if (isRetryFallbackModelKey(role)) return parseRetryFallbackSelector(role, this.#modelRegistry);
-		const configuredSelector = this.settings.getModelRole(role);
-		return configuredSelector ? parseRetryFallbackSelector(configuredSelector, this.#modelRegistry) : undefined;
+		return this.#resolveRoleRetryFallbackSelectors(role)[0];
 	}
 
 	#clearActiveRetryFallback(): void {
