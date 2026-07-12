@@ -1238,6 +1238,11 @@
 
 - Expanded provider rate-limit response header ingestion to all supported providers with header parsers (previously Anthropic-only), enabling proactive account rotation for multi-account sessions before hitting 429 errors.
 - Restored CPU model metadata in workstation prompts on non-Linux hosts.
+### Fixed
+
+- Fixed ordered `modelRoles` candidates not carrying into runtime retry recovery, and restored legacy `title` role failover for online title generation.
+
+## [16.4.6] - 2026-07-12
 
 ### Fixed
 
