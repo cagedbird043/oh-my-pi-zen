@@ -34,6 +34,18 @@ This checkout is maintained as **Oh My Pi Zen** on `zen/main`, but source packag
 - **Mainline discipline**: Do not experiment directly on `zen/main`. Build and dogfood new Zen features on a feature branch, then squash-merge one coherent commit to `zen/main` after verification. This keeps CI usage low, avoids repeated mainline force-pushes, and keeps downstream history reviewable.
 - **Commit hygiene**: Keep `zen/main` history PR-like. Squash dogfood fixes into coherent topic commits before integration. Do not leave temporary fixup commits in the long-lived patch stack.
 
+### Upstream Sync Procedure
+
+When refreshing Zen for a new upstream release, rebuild the downstream stack instead of merging upstream into the old `zen/main`. An upstream release tag is the only permitted sync baseline; never sync or rebase Zen to an arbitrary `upstream/main` commit.
+
+1. Before rebuilding, preserve the exact current `zen/main` head as a permanent source ref. If an immutable `zen/v<version>` release tag already points to that head, it is the archive; otherwise create and push `backup/<current-zen-version>` at that SHA, and never force-push or delete it. Do not rename or delete `zen/main` during preparation.
+2. Fetch upstream and start a clean sync branch/worktree from the latest applicable upstream release tag. Do not use a newer `upstream/main` commit, even when it contains fixes Zen may eventually want.
+3. Replay only live downstream patches in order: Zen release identity/workflow, still-open upstream PR patches, Zen-only runtime features, Unicode Snapcompact, docs/changelog wording, generated-file refresh, then release bump last.
+4. Drop patches already merged upstream before replaying the rest; do not keep duplicate downstream commits for upstreamed fixes.
+5. Do not preserve release-bump commits from old releases on `zen/main`; released artifacts are anchored by `zen/v<version>` tags and npm versions.
+6. Regenerate tracked generated files against the new base instead of blindly cherry-picking old generated output.
+7. Verify the sync branch with focused tests plus `bun check`; only then update `zen/main`, using `--force-with-lease` when replacing history is an explicit cleanup decision.
+8. Never move an existing release tag during stack cleanup. Create a new release tag only from the final release bump commit.
 ## GitHub
 
 Unless user tells you exactly what to write:
