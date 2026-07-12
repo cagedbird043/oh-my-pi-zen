@@ -8,7 +8,7 @@ import { StreamMarkupHealing } from "@oh-my-pi/pi-ai/utils/stream-markup-healing
 import { isTerminalHeadless, logger, prompt } from "@oh-my-pi/pi-utils";
 import type { ModelRegistry } from "../config/model-registry";
 
-import { resolveRoleSelection } from "../config/model-resolver";
+import { resolveConfiguredModelPatterns, resolveModelRoleValue, resolveRoleSelection } from "../config/model-resolver";
 import type { Settings } from "../config/settings";
 import titleMarkerInstruction from "../prompts/system/title-marker-instruction.md" with { type: "text" };
 import titleSystemPrompt from "../prompts/system/title-system.md" with { type: "text" };
@@ -41,16 +41,28 @@ const THINKING_FENCE_ENVELOPE_RE = /```(?:thinking|reasoning)\b[\s\S]*?```/gi;
 const LEADING_THINKING_TAG_RE = /^\s*<(think|thinking|reasoning)>\s*[\s\S]*?<\/\1>\s*/i;
 const LEADING_THINKING_FENCE_RE = /^\s*```(?:thinking|reasoning)\b[\s\S]*?```\s*/i;
 
-function getTitleModel(registry: ModelRegistry, settings: Settings, currentModel?: Model<Api>): Model<Api> | undefined {
+function getTitleModels(registry: ModelRegistry, settings: Settings, currentModel?: Model<Api>): Model<Api>[] {
 	const availableModels = registry.getAvailable();
-	if (availableModels.length === 0) return undefined;
+	if (availableModels.length === 0) return [];
 
-	const titleModel = resolveRoleSelection(["tiny", "commit", "smol"], settings, availableModels)?.model;
-	if (titleModel) return titleModel;
+	for (const role of ["tiny", "title", "commit", "smol"]) {
+		const configured = settings.getModelRole(role);
+		if (!configured) continue;
+		const candidates: Model<Api>[] = [];
+		for (const pattern of resolveConfiguredModelPatterns(configured, settings)) {
+			const model = resolveModelRoleValue(pattern, availableModels, { settings }).model;
+			if (
+				model &&
+				!candidates.some(candidate => candidate.provider === model.provider && candidate.id === model.id)
+			) {
+				candidates.push(model);
+			}
+		}
+		if (candidates.length > 0) return candidates;
+	}
 
-	if (currentModel) return currentModel;
-
-	return undefined;
+	const model = resolveRoleSelection(["tiny", "commit", "smol"], settings, availableModels)?.model ?? currentModel;
+	return model ? [model] : [];
 }
 
 /**
@@ -147,8 +159,8 @@ export async function generateTitleOnline(
 	signal?: AbortSignal,
 	customSystemPrompt?: string,
 ): Promise<string | null> {
-	const model = getTitleModel(registry, settings, currentModel);
-	if (!model) {
+	const models = getTitleModels(registry, settings, currentModel);
+	if (models.length === 0) {
 		logger.warn("title-generator: no title model found", { sessionId, reason: "no-title-model" });
 		return null;
 	}
@@ -161,84 +173,92 @@ export async function generateTitleOnline(
 	// markers work uniformly everywhere.
 	const systemPrompt = titleSystemPrompt ? [titleSystemPrompt, TITLE_MARKER_INSTRUCTION] : [TITLE_SYSTEM_PROMPT];
 	const userMessage = formatTitleUserMessage(firstMessage);
-	const modelName = `${model.provider}/${model.id}`;
-	const modelContext = {
-		sessionId,
-		provider: model.provider,
-		id: model.id,
-		model: modelName,
-	};
-	logger.debug("title-generator: start", modelContext);
 
-	try {
-		const apiKey = await registry.getApiKey(model, sessionId);
-		if (!apiKey) {
-			logger.warn("title-generator: no API key", { ...modelContext, reason: "missing-api-key" });
-			return null;
-		}
-		// Resolve metadata after getApiKey so the session-sticky credential for this
-		// request is already recorded; metadataResolver can then return the correct
-		// account_uuid rather than the snapshot-at-call-site value.
-		const metadata = metadataResolver?.(model.provider);
+	for (const [fallbackIndex, model] of models.entries()) {
+		const modelName = `${model.provider}/${model.id}`;
+		const modelContext = {
+			sessionId,
+			provider: model.provider,
+			id: model.id,
+			model: modelName,
+			fallbackIndex,
+			fallbackCount: models.length,
+		};
+		logger.debug("title-generator: start", modelContext);
 
-		// Title generation is a 3-7 word task, but the ceiling has to survive
-		// backends that ignore `disableReasoning` (see TITLE_MAX_TOKENS above).
-		const maxTokens = TITLE_MAX_TOKENS;
-		logger.debug("title-generator: request", { ...modelContext, maxTokens });
+		try {
+			const apiKey = await registry.getApiKey(model, sessionId);
+			if (!apiKey) {
+				logger.warn("title-generator: no API key", { ...modelContext, reason: "missing-api-key" });
+				continue;
+			}
+			// Resolve metadata after getApiKey so the session-sticky credential for this
+			// request is already recorded; metadataResolver can then return the correct
+			// account_uuid rather than the snapshot-at-call-site value.
+			const metadata = metadataResolver?.(model.provider);
 
-		const response = await completeSimple(
-			model,
-			{
-				systemPrompt,
-				messages: [{ role: "user", content: userMessage, timestamp: Date.now() }],
-			},
-			{
-				apiKey: registry.resolver(model, sessionId),
-				maxTokens,
-				disableReasoning: true,
-				metadata,
-				signal,
-			},
-		);
+			// Title generation is a 3-7 word task, but the ceiling has to survive
+			// backends that ignore `disableReasoning` (see TITLE_MAX_TOKENS above).
+			const maxTokens = TITLE_MAX_TOKENS;
+			logger.debug("title-generator: request", { ...modelContext, maxTokens });
 
-		if (response.stopReason === "error") {
-			logger.warn("title-generator: response error", {
+			const response = await completeSimple(
+				model,
+				{
+					systemPrompt,
+					messages: [{ role: "user", content: userMessage, timestamp: Date.now() }],
+				},
+				{
+					apiKey: registry.resolver(model, sessionId),
+					maxTokens,
+					disableReasoning: true,
+					metadata,
+					signal,
+				},
+			);
+
+			if (response.stopReason === "error") {
+				logger.warn("title-generator: response error", {
+					...modelContext,
+					reason: "provider-response-error",
+					stopReason: response.stopReason,
+					errorMessage: response.errorMessage,
+				});
+				if (signal?.aborted) return null;
+				continue;
+			}
+
+			const title = normalizeGeneratedTitle(extractGeneratedTitle(response.content), firstMessage);
+
+			if (!title) {
+				logger.debug("title-generator: no title returned", {
+					...modelContext,
+					reason: "model-returned-none",
+					usage: response.usage,
+					stopReason: response.stopReason,
+				});
+				return null;
+			}
+
+			logger.debug("title-generator: success", {
 				...modelContext,
-				reason: "provider-response-error",
-				stopReason: response.stopReason,
-				errorMessage: response.errorMessage,
-			});
-			return null;
-		}
-
-		const title = normalizeGeneratedTitle(extractGeneratedTitle(response.content), firstMessage);
-
-		if (!title) {
-			logger.debug("title-generator: no title returned", {
-				...modelContext,
-				reason: "model-returned-none",
+				title,
 				usage: response.usage,
 				stopReason: response.stopReason,
 			});
-			return null;
+
+			return title;
+		} catch (err) {
+			logger.warn("title-generator: error", {
+				...modelContext,
+				reason: "exception",
+				error: err instanceof Error ? err.message : String(err),
+			});
+			if (signal?.aborted) return null;
 		}
-
-		logger.debug("title-generator: success", {
-			...modelContext,
-			title,
-			usage: response.usage,
-			stopReason: response.stopReason,
-		});
-
-		return title;
-	} catch (err) {
-		logger.warn("title-generator: error", {
-			...modelContext,
-			reason: "exception",
-			error: err instanceof Error ? err.message : String(err),
-		});
-		return null;
 	}
+
+	return null;
 }
 
 function extractGeneratedTitle(contentBlocks: AssistantMessage["content"]): string {

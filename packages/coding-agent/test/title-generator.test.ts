@@ -70,6 +70,46 @@ describe("title generator", () => {
 		expect(options?.disableReasoning).toBe(true);
 	});
 
+	it("uses a later legacy title-role candidate after a provider error", async () => {
+		const primaryModel = getModelFor("openai", "gpt-4o-mini");
+		const fallbackModel = getModelOrThrow("claude-haiku-4-5");
+		const completeSimpleMock = vi.spyOn(ai, "completeSimple").mockImplementation(async model => {
+			if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+				return { stopReason: "error", errorMessage: "Model not found", content: [] } as never;
+			}
+			return {
+				stopReason: "stop",
+				content: [{ type: "text", text: "<title>Recovered title</title>" }],
+			} as never;
+		});
+		const settings = {
+			get(path: string) {
+				return path === "providers.tinyModel" ? "online" : undefined;
+			},
+			getModelRole(role: string) {
+				return role === "title"
+					? `${primaryModel.provider}/${primaryModel.id}:low, ${fallbackModel.provider}/${fallbackModel.id}:minimal`
+					: undefined;
+			},
+			getStorage() {
+				return undefined;
+			},
+		} as never;
+		const registry = {
+			getAvailable: () => [primaryModel, fallbackModel],
+			getApiKey: async () => "test-key",
+			resolver: () => async () => "test-key",
+		} as never;
+
+		const title = await generateSessionTitle("Investigate title fallback", registry, settings);
+
+		expect(title).toBe("Recovered title");
+		expect(completeSimpleMock.mock.calls.map(([model]) => `${model.provider}/${model.id}`)).toEqual([
+			`${primaryModel.provider}/${primaryModel.id}`,
+			`${fallbackModel.provider}/${fallbackModel.id}`,
+		]);
+	});
+
 	it.each([
 		[
 			"<thinking>",

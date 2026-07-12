@@ -219,6 +219,40 @@ describe("AgentSession retry fallback", () => {
 		]);
 	});
 
+	it("uses later configured default-role candidates after a provider failure", async () => {
+		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+		if (!primaryModel || !fallbackModel) {
+			throw new Error("Expected bundled test models to exist");
+		}
+
+		const requestedModels: string[] = [];
+		const settings = Settings.isolated({
+			"compaction.enabled": false,
+			"retry.baseDelayMs": 5,
+			"retry.maxRetries": 1,
+		});
+		settings.setModelRole(
+			"default",
+			`${primaryModel.provider}/${primaryModel.id}:high, ${fallbackModel.provider}/${fallbackModel.id}:low`,
+		);
+		session = new AgentSession({
+			agent: createFallbackAgent(primaryModel, requestedModels),
+			sessionManager: SessionManager.inMemory(),
+			settings,
+			modelRegistry,
+		});
+
+		await session.prompt("Recover through the configured default role");
+		await session.waitForIdle();
+
+		expect(requestedModels).toEqual([
+			`${primaryModel.provider}/${primaryModel.id}`,
+			`${fallbackModel.provider}/${fallbackModel.id}`,
+		]);
+		expect(session.model).toMatchObject({ provider: fallbackModel.provider, id: fallbackModel.id });
+	});
+
 	it("activates a model-keyed fallback chain without any role assignment", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
 		const fallbackModel = getBundledModel("openai", "gpt-4o-mini");

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed ordered `modelRoles` candidates not carrying into runtime retry recovery, and restored legacy `title` role failover for online title generation.
+
 ## [16.4.6] - 2026-07-12
 
 ### Fixed
