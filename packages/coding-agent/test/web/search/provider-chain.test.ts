@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import type { AuthStorage } from "@oh-my-pi/pi-ai";
 import { SelectorController } from "@oh-my-pi/pi-coding-agent/modes/controllers/selector-controller";
 import {
-	resolveProviderCandidates,
 	getSearchProvider,
+	resolveProviderCandidates,
 	resolveProviderChain,
 	setExcludedSearchProviders,
 	setPreferredSearchProvider,
@@ -13,6 +13,7 @@ import { SEARCH_PROVIDER_ORDER } from "@oh-my-pi/pi-coding-agent/web/search/type
 const authStorage = {
 	hasAuth: () => false,
 	hasOAuth: () => false,
+	getCredentialOrigin: () => undefined,
 } as unknown as AuthStorage;
 const originalBraveApiKey = process.env.BRAVE_API_KEY;
 const originalJinaApiKey = process.env.JINA_API_KEY;
