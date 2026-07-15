@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Codex `deactivated_workspace` responses not triggering sibling credential rotation, including the backend's `detail.code` error envelope.
+
 ## [16.4.6-zen.1] - 2026-07-12
 
 ### Added

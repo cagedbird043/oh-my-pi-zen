@@ -512,6 +512,64 @@ describe("Responses Lite remote compaction", () => {
 		};
 	}
 
+	test("V2 compaction rotates Codex credentials when a workspace is deactivated", async () => {
+		const model = makeCodexLiteModel();
+		const attemptedKeys: string[] = [];
+		const completeSpy = vi.spyOn(ai, "completeSimple").mockResolvedValue({
+			role: "assistant",
+			content: [{ type: "text", text: "unexpected local summary" }],
+			timestamp: Date.now(),
+			provider: "mock",
+			model: "mock",
+			api: "mock",
+			usage: ZERO_USAGE,
+			stopReason: "stop",
+		});
+		const fetchMock: FetchImpl = async (_input, init) => {
+			const authorization = new Headers(init?.headers).get("authorization");
+			const key = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+			attemptedKeys.push(key);
+			if (key === "deactivated-key") {
+				return Response.json({ detail: { code: "deactivated_workspace" } }, { status: 402 });
+			}
+			return sseResponse([
+				{
+					type: "response.output_item.done",
+					output_index: 0,
+					item: { type: "compaction", encrypted_content: "enc_active_workspace" },
+				},
+				{
+					type: "response.completed",
+					response: { usage: { input_tokens: 12, output_tokens: 1, total_tokens: 13 } },
+				},
+			]);
+		};
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "kept-1",
+			messagesToSummarize: [{ role: "user", content: "long history", timestamp: 1 }],
+			turnPrefixMessages: [],
+			recentMessages: [{ role: "user", content: "recent", timestamp: 2 }],
+			isSplitTurn: false,
+			tokensBefore: 100_000,
+			fileOps: createFileOps(),
+			settings: { ...DEFAULT_COMPACTION_SETTINGS, remoteStreamingV2Enabled: true },
+		};
+
+		const result = await compact(
+			preparation,
+			model,
+			context =>
+				context.error === undefined ? "deactivated-key" : context.lastChance ? "active-key" : "deactivated-key",
+			undefined,
+			undefined,
+			{ fetch: fetchMock },
+		);
+
+		expect(attemptedKeys).toEqual(["deactivated-key", "active-key"]);
+		expect(result.summary).toContain("Remote compaction preserved provider-native history");
+		expect(completeSpy).not.toHaveBeenCalled();
+	});
+
 	test("V1 compaction sends the lite header and input-item instructions", async () => {
 		const model = makeCodexLiteModel();
 		let captured: CapturedLiteExchange | undefined;
@@ -555,6 +613,26 @@ describe("Responses Lite remote compaction", () => {
 			type: "message",
 			role: "developer",
 			content: [{ type: "input_text", text: "compact instructions" }],
+		});
+	});
+
+	test("V1 compaction preserves Codex detail error codes", async () => {
+		const model = makeCodexLiteModel();
+		const error = await requestOpenAiRemoteCompaction(
+			model,
+			"deactivated-key",
+			[{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
+			"compact instructions",
+			undefined,
+			{
+				fetch: async () => Response.json({ detail: { code: "deactivated_workspace" } }, { status: 402 }),
+			},
+		).catch(cause => cause);
+
+		expect(error).toMatchObject({
+			name: "CodexApiError",
+			status: 402,
+			code: "deactivated_workspace",
 		});
 	});
 

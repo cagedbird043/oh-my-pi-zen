@@ -4,6 +4,7 @@ import { isUsageLimitOutcome } from "./rate-limit";
 
 const CODEX_INACTIVE_WORKSPACE_MEMBER_PATTERN =
 	/\bpersonal access token owner is not an active member of (?:the )?selected workspace\b/i;
+const CODEX_DEACTIVATED_WORKSPACE_PATTERN = /\bdeactivated_workspace\b/i;
 
 /**
  * Whether an OAuth refresh failure is definitive (the credential must be
@@ -17,17 +18,28 @@ export function isDefinitiveOAuthFailure(errorMsg: string): boolean {
 
 /**
  * Whether an upstream failure should rotate to a sibling credential: a hard
- * `401`, a credential-specific Codex workspace-membership rejection, a
- * body-classified usage limit (Codex `usage_limit_reached`, Anthropic account
- * rate-limit, Google `resource_exhausted`, OpenAI `insufficient_quota`, …), or
- * a bare `429` whose payload did not preserve a richer quota code. Transient
- * 429s (`Too many requests`, per-minute caps) stay in the upstream-backoff lane.
+ * `401`, a credential-specific Codex workspace rejection (including
+ * `deactivated_workspace`), a body-classified usage limit (Codex
+ * `usage_limit_reached`, Anthropic account rate-limit, Google
+ * `resource_exhausted`, OpenAI `insufficient_quota`, …), or a bare `429` whose
+ * payload did not preserve a richer quota code. Transient 429s (`Too many
+ * requests`, per-minute caps) stay in the upstream-backoff lane.
  */
 export function isAuthRetryableError(error: unknown): boolean {
 	const httpStatus = extractHttpStatusFromError(error);
 	if (httpStatus === 401) return true;
+	const code =
+		typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+			? error.code
+			: undefined;
+	if (code && CODEX_DEACTIVATED_WORKSPACE_PATTERN.test(code)) return true;
 	const message = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
-	if (message && CODEX_INACTIVE_WORKSPACE_MEMBER_PATTERN.test(message)) return true;
+	if (
+		message &&
+		(CODEX_INACTIVE_WORKSPACE_MEMBER_PATTERN.test(message) || CODEX_DEACTIVATED_WORKSPACE_PATTERN.test(message))
+	) {
+		return true;
+	}
 	const embeddedStatus = message ? extractHttpStatusFromError({ message }) : undefined;
 	if (embeddedStatus === 401) return true;
 	return isUsageLimitOutcome(httpStatus ?? embeddedStatus, message);

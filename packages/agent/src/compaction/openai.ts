@@ -17,6 +17,7 @@
 
 import { ProviderHttpError } from "@oh-my-pi/pi-ai/error";
 import { applyCodexResponsesLiteShape } from "@oh-my-pi/pi-ai/providers/openai-codex/request-transformer";
+import { CodexApiError } from "@oh-my-pi/pi-ai/providers/openai-codex/response-handler";
 import {
 	createOpenAICodexCompactionRequestContext,
 	createOpenAICodexCompatibilityMetadata,
@@ -554,13 +555,15 @@ export async function requestOpenAiRemoteCompaction(
 	});
 
 	if (!response.ok) {
-		const errorText = await response.text().catch(() => "");
+		const codexError = isCodexResponses ? await CodexApiError.fromResponse(response) : undefined;
+		const errorText = codexError?.info.raw ?? (await response.text().catch(() => ""));
 		logger.warn("OpenAI remote compaction failed", {
 			endpoint,
 			status: response.status,
 			statusText: response.statusText,
 			errorText,
 		});
+		if (codexError) throw codexError;
 		throw new ProviderHttpError(
 			`Remote compaction failed (${response.status} ${response.statusText})`,
 			response.status,

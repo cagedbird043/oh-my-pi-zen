@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed Codex V1/V2 remote compaction discarding structured provider errors, allowing deactivated workspaces to rotate credentials instead of failing compaction.
+
 ## [16.4.5] - 2026-07-11
 
 ### Added

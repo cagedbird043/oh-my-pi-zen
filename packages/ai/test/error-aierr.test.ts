@@ -42,6 +42,18 @@ describe("AIError.classify — structural provider errors", () => {
 		).toBe(true);
 	});
 
+	it("maps deactivated Codex workspaces to authFailed", () => {
+		const structured = AIError.classify(
+			new AIError.ProviderHttpError("Payment Required", 402, { code: "deactivated_workspace" }),
+		);
+		const wrapped = AIError.classify(
+			new Error('Turn prefix summarization failed: {"detail":{"code":"deactivated_workspace"}}'),
+		);
+
+		expect(AIError.is(structured, AIError.Flag.AuthFailed)).toBe(true);
+		expect(AIError.is(wrapped, AIError.Flag.AuthFailed)).toBe(true);
+	});
+
 	it("classifies a typed AWS credential-resolution failure as authFailed", () => {
 		const id = AIError.classify(new AIError.AwsCredentialsError("opaque provider setup failure", "resolution"));
 		expect(AIError.is(id, AIError.Flag.AuthFailed)).toBe(true);

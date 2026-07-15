@@ -72,6 +72,16 @@ describe("isAuthRetryableError", () => {
 		).toBe(true);
 		expect(isAuthRetryableError(authError(403))).toBe(false);
 		expect(isAuthRetryableError(inactiveWorkspaceMemberError())).toBe(true);
+		expect(
+			isAuthRetryableError(
+				Object.assign(new Error("Payment Required"), { status: 402, code: "deactivated_workspace" }),
+			),
+		).toBe(true);
+		expect(
+			isAuthRetryableError(
+				new Error('Turn prefix summarization failed: {"detail":{"code":"deactivated_workspace"}}'),
+			),
+		).toBe(true);
 		expect(isAuthRetryableError(authError(500))).toBe(false);
 		expect(isAuthRetryableError(new Error("network blip"))).toBe(false);
 		expect(isAuthRetryableError(undefined)).toBe(false);

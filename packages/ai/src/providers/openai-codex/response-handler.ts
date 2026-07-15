@@ -15,7 +15,7 @@ export type CodexRateLimits = {
 export type CodexErrorInfo = {
 	message: string;
 	status: number;
-	/** Machine-readable error code (`error.code` or `error.type` from the response body), when present. */
+	/** Machine-readable error code (`error`/`detail` code or type), when present. */
 	code?: string;
 	friendlyMessage?: string;
 	rateLimits?: CodexRateLimits;
@@ -45,8 +45,9 @@ export async function parseCodexError(response: Response): Promise<CodexErrorInf
 	let errorCode: string | undefined;
 
 	try {
-		const parsed = JSON.parse(raw) as { error?: Record<string, unknown> };
-		const err = parsed?.error ?? {};
+		const parsed = JSON.parse(raw) as { error?: unknown; detail?: unknown };
+		const envelope = parsed.error ?? parsed.detail;
+		const err = envelope && typeof envelope === "object" ? (envelope as Record<string, unknown>) : {};
 
 		const headers = response.headers;
 		const primary = {
