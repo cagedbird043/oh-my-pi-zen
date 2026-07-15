@@ -2,6 +2,56 @@
 
 ## [Unreleased]
 
+## [16.5.2-zen.1] - 2026-07-15
+
+### Breaking Changes
+
+- Replaced the `--reasoning-slide-*` flag family with a unified `--prewalk` mechanism (`--prewalk`, `--prewalk-into <model>`, and `--no-prewalk`) to manage model handoffs during execution.
+
+### Added
+
+- Added a new `--prewalk` execution flow (with `--prewalk-into <model>` and `--no-prewalk` overrides) that starts tasks on a strong model for planning and todo initialization before handing off to a faster, cheaper model for implementation.
+ - Added a status line annotation for the active prewalk phase (armed or active).
+ - Added the `tui.scrollbackRebuild` setting to gate the erase-and-replay native scrollback rebuild mechanism (defaults to off).
+- Added a display setting to toggle between collapsing or keeping compacted history inline in live session displays.
+- Added a compact session-only model picker (Alt+P) for quick model switching, featuring `@` search to quickly list and apply configured quick roles.
+- Redesigned Agent Hub entries into a cleaner two-line card layout showing identity, active model, reasoning level, age, and task description.
+- Added a project-scoped `launch` tool (gated by `launch.enabled`) for managing shared long-running services and debuggers, featuring readiness probes, bounded logs, PTY input, restart policies, and automatic teardown.
+- Added support for `detached` launches, allowing standalone services to survive broker shutdowns and reconnect to subsequent sessions.
+
+### Changed
+
+- Updated JSON logs (`--mode json`) to include provider payloads in auto-compaction events.
+- Updated tangential agent forks (`/tan`) to ignore parent session history and focus exclusively on the new request, hardening isolation with cleared todo lists and concurrent editing warnings.
+- Added visual markers in the transcript for elided tool calls that have no corresponding result.
+- Updated the status event log to prioritize the most recent entries in the display window.
+- Upgraded `@agentclientprotocol/sdk` to version 1.2.1.
+- Replaced the Alt+P / `/switch` temporary model selector's fullscreen /models hub with a compact full-width floating overlay anchored above the editor (~40% of the terminal height): just the searchable model list — no provider sidebar or role management — with the session's active model highlighted and preselected
+- Improved tab recovery after timeouts by automatically clearing pending navigation and JS dialogs
+- Made `tab.goto` navigation failures catchable with a named error instead of triggering a whole-cell timeout
+- Made `tab.evaluate` run in the page's main JavaScript world so page-defined globals are available without a directive
+- Enhanced cell timeout messages to include identification of stalled operations and blocking JS dialogs
+- Browser `run` on a tab the supervisor force-killed now reports the kill reason instead of a bare "not alive"
+- Refined agent workflow to prioritize smoke testing and reduce mandatory upfront test generation
+
+### Fixed
+
+- Fixed terminal scrollback duplication issues with expanded streaming edit previews (Ctrl+O) by using a viewport-sized tail window.
+- Fixed custom model role resolution and alias parsing, ensuring canonical role selectors (`@role`) and thinking suffixes resolve correctly across all configuration surfaces.
+- Fixed quadratic growth in JSON logs by eliding redundant message snapshots and payloads.
+- Fixed prompt cache misses and incorrect cache key pinning for `/tan` and `/fork` clones.
+- Fixed inconsistent history rendering and scrollback repainting when toggling the display setting for compacted items.
+- Fixed `retry.fallbackChains` failing to engage on non-retryable provider errors, ensuring the agent correctly falls back to the next candidate model.
+- Improved auto-compaction to automatically drop images and elide content when context is tight, and added persistent warning badges when manual intervention is required.
+- Fixed backgrounded Bash blocks continuing to repaint with live output; they now freeze with a compact job notice while completion is delivered separately.
+- Fixed rendering, status display, and PTY control sequence formatting issues in the `launch` tool.
+- Fixed in-process shell builtins (including `stat`, `date`, `sed`, `mktemp`, `tail`, `find`, `base64`, and `ln`) to correctly detect and translate macOS/BSD-style arguments and flags, preventing failures caused by GNU-only assumptions.
+- Fixed the eval tool's status-event tree truncating from the bottom: the newest `log()` progress lines were hidden behind an `… N more` marker while the oldest stayed visible; the tree now shows a tail window behind an `… N earlier` marker, and the expanded view widens to the viewport instead of a fixed 10 events
+- Fixed the `//!world=main` directive being silently ignored for string expressions passed to raw Puppeteer evaluation APIs
+- Fixed tab reuse issues where hung navigation or unhandled modals would cause initialization to stall and trigger a force-kill
+- Improved search reliability for Perplexity provider by forcing retrieval for all queries
+- Fixed JS eval cells losing top-level `function` and `var` declarations across cells when the defining cell contained top-level `await` — the async wrapper scoped them to the cell's IIFE instead of publishing them to the worker global
+
 ## [16.5.2] - 2026-07-14
 
 ### Breaking Changes
@@ -16,61 +66,10 @@
 
 - Expanded provider rate-limit response header ingestion to all supported providers with header parsers (previously Anthropic-only), enabling proactive account rotation for multi-account sessions before hitting 429 errors.
 - Restored CPU model metadata in workstation prompts on non-Linux hosts.
+
 ### Fixed
 
 - Fixed ordered `modelRoles` candidates not carrying into runtime retry recovery, and restored legacy `title` role failover for online title generation.
-
-## [16.4.6] - 2026-07-12
-
-### Fixed
-
-- Fixed `omp config list --json` output truncation at 64 KiB when stdout is piped.
-- Fixed vim-style navigation (`h`/`j`/`k`/`l`) under the Kitty keyboard protocol.
-- Fixed `/guided-goal` throwing `Model not found` errors on websocket-only Codex models by routing the interview through the session's provider transport and reusing a single isolated side session.
-- Fixed `tool_result` extension handlers being unable to rewrite the model-visible content of a thrown tool failure.
-- Fixed intermittent Perplexity OAuth web search failures (401 errors) caused by transient transport drops on the ask endpoint.
-- Fixed the `generate_image` tool ignoring `--no-tools` and explicit tool whitelists.
-- Fixed markerless prose thinking preambles incorrectly becoming session titles when title models omit the `<title>` marker.
-- Fixed the agent recreating a todo list immediately after a user clears it with `/todo rm`.
-- Fixed internal-URL autocomplete (`agent://`, `skill://`, `omp://`, etc.) not triggering inside slash command arguments.
-- Fixed the browser tool hanging indefinitely during tab closure when the headless Chromium process is wedged on Windows.
-- Fixed `history://` URLs failing to resolve for unregistered, released, or resumed subagents by falling back to scanning artifacts directories on disk.
-- Fixed eval cells treating `timeout: 0` as a one-second deadline and reporting session-deadline cancellations as user aborts.
-- Fixed MCP OAuth dynamic client registration for pathful authorization-server issuers by preserving the discovered registration endpoint.
-- Fixed the `launch` tool failing to start Windows executables due to double-escaped PTY commands and arguments.
-- Fixed the built-in advisor warning `Advisor unavailable` for silent reviews: a content-less stop is a valid "nothing to add" outcome and is never retried or warned about, regardless of reported token usage ([#5212](https://github.com/can1357/oh-my-pi/issues/5212) follow-up).
-- Fixed `read`, `edit`, and `grep` tools failing on paths with a stray leading colon emitted by some models.
-- Fixed git plugin re-installs retaining stale commits by fetching Bun's cached clone before updating the lockfile pin.
-- Fixed overlapping Bash timeout and interrupt cleanup to explicitly abort isolated shells instead of leaving child processes running.
-- Fixed a bug where generic provider aborts arriving as `stopReason: "error"` were not auto-retried.
-- Fixed switching from a vision model to a text-only model mid-session sending historical image blocks to the new provider.
-- Fixed inline images in Agent Hub transcripts by routing replayed images through the shared image budget and Kitty placeholder renderer.
-- Fixed OSC 5522 paste in direct API-key login prompts being routed to the hidden main chat editor instead of the focused credential field.
-- Fixed plugin installation failures when an ES module extension synchronously requires CommonJS helpers.
-- Fixed GitHub code search rejecting empty optional date placeholders.
-- Fixed `/tree` navigation onto a `/skill:` injection node landing on the incorrect entry.
-- Fixed interactive TUI sessions crashing with concurrent JS runtime errors when the JS eval worker falls back to the in-process inline path.
-- Fixed compaction aborting instead of trying an authenticated fallback model when Amazon Bedrock credential resolution fails.
-- Fixed full-context forks and `/tan` clones cold-missing OpenAI prompt caches by properly persisting and inheriting provider prompt-cache keys.
-- Fixed Codex advisor requests using local session labels as provider session IDs.
-- Fixed macOS stdio MCP servers launching in a detached session, allowing the TCC Apple Events permission prompt to trigger.
-- Fixed the ask tool timeout to auto-select the recommended option when the UI selector does not settle.
-- Fixed LSP workspace diagnostics for Go workspaces to correctly recognize `go.work` roots and include all used modules.
-- Fixed interactive OAuth login success messages waiting on background model discovery.
-- Fixed Windows bash tool crashes when an explicit timeout fires while a piped command is still streaming.
-- Fixed subagent `yield` tool calls being discarded when the soft request budget hard-aborted the same assistant turn.
-- Fixed `--tools` filtering in interactive sessions disabling deferred MCP tools.
-- Fixed kept-alive task subagents entering repeated provider-call loops after an IRC wake and terminal yield.
-- Fixed manual `/compact` with the snapcompact strategy hard-failing on text-only active models.
-- Fixed the empty-editor `←←` gesture trapping input when opening the Agent Hub from persisted/parked subagents.
-- Fixed eval `read()` URI handling in Python and JS runtimes to correctly delegate URI reads and pass pagination arguments.
-- Fixed discovered plugin `.mcp.json` stdio servers launching relative `command` or `cwd` values against the session cwd instead of the plugin's config directory.
-- Fixed Model Hub DEFAULT role assignments with `auto` retaining a stale concrete reasoning suffix after restart.
-- Fixed configured `retry.fallbackChains` failing to engage on non-retryable provider errors.
-- Fixed backgrounded Bash blocks continuing to repaint with live output after completion.
-- Fixed `--reasoning-slide-plan` silently ending the run with no code written when the model answered with a text-only reply.
-- Fixed launch tool rendering issues, including stacked pending headers and confusing start/wait results when readiness timed out.
-- Fixed the in-process `stat` and other GNU-flavored shell builtins (such as `date`, `sed`, `mktemp`, `tail`, `find`, `base64`, and `ln`) mangling or failing on macOS/BSD-style invocations.
 
 ## [16.5.1] - 2026-07-14
 
@@ -100,42 +99,6 @@
 
 ## [16.5.0] - 2026-07-13
 
-### Breaking Changes
-
-- Replaced the `--reasoning-slide-*` flag family with a unified `--prewalk` mechanism (`--prewalk`, `--prewalk-into <model>`, and `--no-prewalk`) to manage model handoffs during execution.
-
-### Added
-
-- Added a new `--prewalk` execution flow (with `--prewalk-into <model>` and `--no-prewalk` overrides) that starts tasks on a strong model for planning and todo initialization before handing off to a faster, cheaper model for implementation.
- - Added a status line annotation for the active prewalk phase (armed or active).
- - Added the `tui.scrollbackRebuild` setting to gate the erase-and-replay native scrollback rebuild mechanism (defaults to off).
-- Added a display setting to toggle between collapsing or keeping compacted history inline in live session displays.
-- Added a compact session-only model picker (Alt+P) for quick model switching, featuring `@` search to quickly list and apply configured quick roles.
-- Redesigned Agent Hub entries into a cleaner two-line card layout showing identity, active model, reasoning level, age, and task description.
-- Added a project-scoped `launch` tool (gated by `launch.enabled`) for managing shared long-running services and debuggers, featuring readiness probes, bounded logs, PTY input, restart policies, and automatic teardown.
-- Added support for `detached` launches, allowing standalone services to survive broker shutdowns and reconnect to subsequent sessions.
-
-### Changed
-
-- Updated JSON logs (`--mode json`) to include provider payloads in auto-compaction events.
-- Updated tangential agent forks (`/tan`) to ignore parent session history and focus exclusively on the new request, hardening isolation with cleared todo lists and concurrent editing warnings.
-- Added visual markers in the transcript for elided tool calls that have no corresponding result.
-- Updated the status event log to prioritize the most recent entries in the display window.
-- Upgraded `@agentclientprotocol/sdk` to version 1.2.1.
-
-### Fixed
-
-- Fixed terminal scrollback duplication issues with expanded streaming edit previews (Ctrl+O) by using a viewport-sized tail window.
-- Fixed custom model role resolution and alias parsing, ensuring canonical role selectors (`@role`) and thinking suffixes resolve correctly across all configuration surfaces.
-- Fixed quadratic growth in JSON logs by eliding redundant message snapshots and payloads.
-- Fixed prompt cache misses and incorrect cache key pinning for `/tan` and `/fork` clones.
-- Fixed inconsistent history rendering and scrollback repainting when toggling the display setting for compacted items.
-- Fixed `retry.fallbackChains` failing to engage on non-retryable provider errors, ensuring the agent correctly falls back to the next candidate model.
-- Improved auto-compaction to automatically drop images and elide content when context is tight, and added persistent warning badges when manual intervention is required.
-- Fixed backgrounded Bash blocks continuing to repaint with live output; they now freeze with a compact job notice while completion is delivered separately.
-- Fixed rendering, status display, and PTY control sequence formatting issues in the `launch` tool.
-- Fixed in-process shell builtins (including `stat`, `date`, `sed`, `mktemp`, `tail`, `find`, `base64`, and `ln`) to correctly detect and translate macOS/BSD-style arguments and flags, preventing failures caused by GNU-only assumptions.
-
 ### Removed
 
 - Removed the `--prewalk-boomerang` feature and its associated configuration setting.
@@ -149,24 +112,6 @@
 - Added `--reasoning-slide-model` and `--reasoning-slide-turns` to switch a running agent from its initial model after a fixed number of completed assistant turns
 - Added `--reasoning-slide-plan` (with `--reasoning-slide-plan-at`) to steer a hidden deep-planning nudge into the run before the reasoning slide; the switch is held until a substantial plan turn actually lands (bounded by a grace window) and the nudge is scrubbed from the LLM context at the switch so the fast model inherits only the produced plan
 - Added `--reasoning-slide-on-action` to trigger the reasoning slide at the first completed turn that ran an edit/write tool instead of a fixed turn count (bash is excluded — it doubles as exploration)
-
-### Changed
-
-- Replaced the Alt+P / `/switch` temporary model selector's fullscreen /models hub with a compact full-width floating overlay anchored above the editor (~40% of the terminal height): just the searchable model list — no provider sidebar or role management — with the session's active model highlighted and preselected
-- Improved tab recovery after timeouts by automatically clearing pending navigation and JS dialogs
-- Made `tab.goto` navigation failures catchable with a named error instead of triggering a whole-cell timeout
-- Made `tab.evaluate` run in the page's main JavaScript world so page-defined globals are available without a directive
-- Enhanced cell timeout messages to include identification of stalled operations and blocking JS dialogs
-- Browser `run` on a tab the supervisor force-killed now reports the kill reason instead of a bare "not alive"
-- Refined agent workflow to prioritize smoke testing and reduce mandatory upfront test generation
-
-### Fixed
-
-- Fixed the eval tool's status-event tree truncating from the bottom: the newest `log()` progress lines were hidden behind an `… N more` marker while the oldest stayed visible; the tree now shows a tail window behind an `… N earlier` marker, and the expanded view widens to the viewport instead of a fixed 10 events
-- Fixed the `//!world=main` directive being silently ignored for string expressions passed to raw Puppeteer evaluation APIs
-- Fixed tab reuse issues where hung navigation or unhandled modals would cause initialization to stall and trigger a force-kill
-- Improved search reliability for Perplexity provider by forcing retrieval for all queries
-- Fixed JS eval cells losing top-level `function` and `var` declarations across cells when the defining cell contained top-level `await` — the async wrapper scoped them to the cell's IIFE instead of publishing them to the worker global
 
 ## [16.4.7] - 2026-07-12
 
@@ -187,69 +132,10 @@
 - Fixed the hover highlight sticking to the last hovered model row when the pointer moved into the provider sidebar
 
 ## [16.4.6] - 2026-07-12
+
 ### Fixed
 
 - Fixed compiled Startpage web search failing when its header-profile dependency tried to read unbundled runtime JSON assets; the provider now uses embedded browser profiles and retains its lazy module boundary.
-
-## [16.4.3-zen.4] - 2026-07-11
-
-### Added
-
-- Added structured compaction lifecycle diagnostics for start, Snapcompact render, archive persistence, and transcript reconstruction; diagnostics include frame counts, byte budgets, timing, and safe failure fingerprints without raw archive or error content.
-
-### Fixed
-
-- Fixed `unicode-snapcompact` losing its persisted archive summary from collapsed `Ctrl+O` history details; the archived-frame summary now appears after the compaction text without attaching PNG frames to the terminal transcript.
-
-## [16.4.3-zen.3] - 2026-07-11
-
-### Fixed
-
-- Fixed compiled binaries failing to instantiate the Startpage web-search provider by keeping its constructor in the static bundle graph.
-
-## [16.4.3-zen.2] - 2026-07-11
-
-### Fixed
-
-- Fixed Zen npm publishing failing after a successful coding-agent publish because the release packer still invoked the removed `postpack` script.
-
-## [16.4.3-zen.1] - 2026-07-11
-
-### Added
-
-- Added `invalidate` action to the usage command to clear cached usage reports
-- Added model-oriented keys and wildcard entries to `retry.fallbackChains`: a `provider/model-id` key attaches a fallback chain to that exact model, a `provider/*` key covers every current or future model of a provider, and a `provider/*` chain entry keeps the failing model's id while swapping the provider (`google-antigravity/x` → `google/x`) — so fallbacks survive role and model reassignments without config edits. Keys resolve by specificity: exact model, then provider wildcard, then role, then `default`.
-- Added fallback-chain editing to the /models Roles view: each role's `retry.fallbackChains` entries render as indented rows beneath it, `f` picks a fallback model to append, Enter on an entry replaces it, `x`/backspace removes it, and `[`/`]` (or shift+↑/↓) reorder the chain.
-- Added model-keyed fallback management to the /models Roles view: model and `provider/*` chains render as a separate section below the roles (divider + "+ New fallback…" row for creating one by picking the protected model, then keying it by model or provider), with the same replace/remove/reorder editing as role chains; the model strip gains `fallbacks:<model>` and `fallbacks:<provider>/*` chips as shortcuts.
-- Added `/queue <message>` plus `->` / `=>` composer shorthand for follow-up messages that wait until the agent yields. The shorthand opens a dim `Queueing` header and splits sequential numeric, Roman-numeral, or alphabetic lists into separately highlighted queue entries.
-- Added per-model TPS/TTFT tracking: every completed assistant turn folds its timing into recency-weighted aggregates in `~/.omp/agent.db`, and the /models browser shows measured speed — a right-aligned `118t/s` column on wide terminals (plus TTFT, e.g. `0.9s 118t/s`, when wider) and `~118t/s · 0.9s ttft` facts in the selection detail line — with no dependency on the `omp stats` session scan.
-
-### Changed
-
-- Retain completed and abandoned tasks in session history for improved context on resume
-- Changed the Model Hub `retry-fallback` strip chip to append the model to the default fallback chain instead of prepending it, matching the chain-building order of the Roles view (already-registered models are a no-op).
-- Changed per-model perf recording (`recordModelPerf`) to be deferred like prompt history: samples are batched and written to `agent.db` in one transaction ~100ms later, keeping SQLite writes off the turn-completion hot path.
-### Added
-
-- Added structured compaction lifecycle diagnostics for start, Snapcompact render, archive persistence, and transcript reconstruction; diagnostics include frame counts, byte budgets, timing, and safe failure fingerprints without raw archive or error content.
-
-### Fixed
-
-- Fixed `unicode-snapcompact` losing its persisted archive summary from collapsed `Ctrl+O` history details; the archived-frame summary now appears after the compaction text without attaching PNG frames to the terminal transcript.
-
-## [16.4.3-zen.3] - 2026-07-11
-
-### Fixed
-
-- Fixed failure to trigger model fallback when the retry budget is exhausted by credential rotation
-- Fixed uncontrollable mouse-wheel scrolling in the /models hub: the wheel moved the selection (one step per wheel event, so a single trackpad flick skipped many rows) and wrapped from the bottom back to the top. Wheel scrolling now pans the list viewport only, clamps at the ends, and leaves the selection where it is; keyboard navigation still scrolls the selection into view. Likewise, the wheel over the provider sidebar no longer switches the active scope (or triggers provider refreshes) — it just scrolls the sidebar.
-- Fixed TPS being inflated several-fold when a provider hides reasoning tokens until late in the stream (e.g. `google/gemini-3.5` vs `google-vertex/gemini-3.5` reporting 648 vs 186 TPS for identical durations): `omp bench`, the per-turn usage row, and the /models perf aggregates now measure tokens/sec over the total request duration instead of the post-TTFT decode window, matching `omp stats`. Stored perf aggregates are purged and re-backfilled from stats history with the corrected math on first launch.
-- Fixed the model-perf stats.db backfill freezing the TUI (~30s on multi-million-row stats databases) when /models triggered it: the import is now fire-and-forget, walks the newest rows in small chunks with event-loop yields between them, and is bounded to 90 days / 256 newest samples per model — beyond either bound the recency decay would erase the contribution anyway.
-- Fixed compiled release binaries bundling `fastembed` and baking the build-machine `@anush008/tokenizers` path; native runtime dependencies now stay external for every compiled build path so Mnemopi resolves its on-demand install instead. ([#5195](https://github.com/can1357/oh-my-pi/issues/5195))
-- Fixed `/btw` side-channel turns on Codex models such as `gpt-5.6-luna` by preserving the session websocket preference instead of forcing SSE, and made Esc dismiss the active `/btw` panel before interrupting loop/maintenance work. ([#5213](https://github.com/can1357/oh-my-pi/issues/5213))
-- Fixed the Model Hub role-assignment strip hiding the selected chip once the row overflowed; the strip now scrolls horizontally, truncating passed chips behind a leading ellipsis so the selection (plus one chip of lookahead) stays visible.
-- Fixed mouse hover and clicks in the /models Roles view landing one row above the pointer (the row mapping subtracted the status row twice).
-- Fixed model search keeping the most-recently-used model on top of the results: match quality now ranks first (an exact `gpt-5.5` beats the active `gpt-5.6-sol`), with MRU order only breaking ties between equally good matches.
 
 ## [16.4.5] - 2026-07-11
 
@@ -297,7 +183,36 @@
 - Fixed `GenerateImage` rejecting OpenAI Codex-compatible proxy bearer keys when the token does not expose a `chatgpt-account-id`. (#5174)
 - Fixed context promotion documentation to accurately reflect the `contextPromotionTarget` runtime behavior and `contextPromotion.enabled` default. (#5163)
 
-## [16.4.3] - 2026-07-11
+## [16.4.3-zen.5] - 2026-07-11
+
+### Fixed
+
+- Fixed compiled Startpage web search failing when its header-profile dependency tried to read unbundled runtime JSON assets; the provider now uses embedded browser profiles and retains its lazy module boundary.
+
+## [16.4.3-zen.4] - 2026-07-11
+
+### Added
+
+- Added structured compaction lifecycle diagnostics for start, Snapcompact render, archive persistence, and transcript reconstruction; diagnostics include frame counts, byte budgets, timing, and safe failure fingerprints without raw archive or error content.
+
+### Fixed
+
+- Fixed `unicode-snapcompact` losing its persisted archive summary from collapsed `Ctrl+O` history details; the archived-frame summary now appears after the compaction text without attaching PNG frames to the terminal transcript.
+
+## [16.4.3-zen.3] - 2026-07-11
+
+### Fixed
+
+- Fixed compiled binaries failing to instantiate the Startpage web-search provider by keeping its constructor in the static bundle graph.
+
+## [16.4.3-zen.2] - 2026-07-11
+
+### Fixed
+
+- Fixed Zen npm publishing failing after a successful coding-agent publish because the release packer still invoked the removed `postpack` script.
+
+## [16.4.3-zen.1] - 2026-07-11
+
 ### Fixed
 
 - Fixed Zen release changelog generation re-listing previously released downstream changes after an upstream history rebuild; `/changelog` now reports only changes since the previous Zen release.
@@ -642,12 +557,6 @@
 - Fixed turn-ending provider errors rendering with a doubled blank gap above the `Error:` block (caller and error block each added a spacer).
 - Fixed the write tool renderer crashing when persisted runtime content is a truthy non-string value; rendering now coerces display content before Windows CR normalization. ([#4495](https://github.com/can1357/oh-my-pi/issues/4495))
 - Fixed cmux-backend `browser({action:"run"})` calls crashing the entire process with an unhandled rejection when the tab was released mid-run (e.g. a sibling subagent calling `browser({action:"close", all:true})` or a session-scoped tab reap). `runInTabWithSnapshot` in `tab-supervisor.ts` creates a `Promise.withResolvers()` triple so `releaseTab` can signal in-flight runs, but the cmux branch used to await `runCmuxCode(...)` directly and never awaited the local promise. When `releaseTab` rejected that orphaned promise ("Tab ... was closed"), Bun surfaced it as an unhandled rejection and the top-level handler tore the whole session down, killing every other tab and subagent sharing it. Both backends now await the same `promise` (so `pending.reject` always has an attached handler AND the caller sees `Tab "..." was closed` immediately instead of blocking to the run's timeout), and a new `pending.closeAc` is composed into the cmux run's abort signal so `wait(...)`, in-flight cmux socket calls, and the facade proxies unwind promptly when the tab is closed rather than leaking to their own timeout ([#4499](https://github.com/can1357/oh-my-pi/issues/4499)).
-- Fixed `omitThinking` settings propagation so settings-aware streams request hidden thinking summaries when users explicitly enable the option.
-- Fixed Zen prerelease builds checking the upstream `@oh-my-pi/pi-coding-agent` stable channel and falsely reporting `16.3.6` as newer than `16.3.6-zen.N`.
-
-### Added
-
-- Added `anysearch` web search provider, supporting both credentials-based and anonymous MCP search fallbacks.
 
 ## [16.3.5] - 2026-07-04
 

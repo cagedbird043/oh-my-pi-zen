@@ -7,6 +7,7 @@
 ### Changed
 
 - Updated archived transcript rendering to use a more compact format with `¶user:`, `¶think:`, `¶ai:`, and `¶call:` scopes, omitting repeated adjacent scope headers and appending tool-call intents as comments.
+
 ## [16.3.15-zen.1] - 2026-07-10
 
 ### Added
