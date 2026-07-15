@@ -89,6 +89,11 @@
 - Removed automatic /interactions chaining for follow-up turns in Google provider calls, along with the useInteractionsApi, storeInteraction, and previousInteractionId stream options.
 
 ## [16.4.6] - 2026-07-12
+### Fixed
+
+- Fixed Codex `deactivated_workspace` responses not triggering sibling credential rotation, including the backend's `detail.code` error envelope.
+
+## [16.4.6-zen.1] - 2026-07-12
 
 ### Added
 

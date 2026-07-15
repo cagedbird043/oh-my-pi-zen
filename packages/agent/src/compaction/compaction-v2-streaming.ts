@@ -10,6 +10,7 @@
 import type { Api, CodexCompactionContext, FetchImpl, Model, ProviderSessionState } from "@oh-my-pi/pi-ai";
 import { isTransientStatus, ProviderHttpError } from "@oh-my-pi/pi-ai/error";
 import { applyCodexResponsesLiteShape } from "@oh-my-pi/pi-ai/providers/openai-codex/request-transformer";
+import { CodexApiError } from "@oh-my-pi/pi-ai/providers/openai-codex/response-handler";
 import {
 	createOpenAICodexCompactionRequestContext,
 	createOpenAICodexCompatibilityMetadata,
@@ -334,13 +335,16 @@ async function attemptCompactionV2Streaming(
 	});
 
 	if (!response.ok) {
-		const errorText = await response.text().catch(() => "");
+		const isCodexResponses = compactionV2Api(model) === "openai-codex-responses" || model.provider === "openai-codex";
+		const codexError = isCodexResponses ? await CodexApiError.fromResponse(response) : undefined;
+		const errorText = codexError?.info.raw ?? (await response.text().catch(() => ""));
 		logger.warn("V2 remote compaction failed", {
 			endpoint,
 			status: response.status,
 			statusText: response.statusText,
 			errorText,
 		});
+		if (codexError) throw codexError;
 		throw new ProviderHttpError(
 			`V2 remote compaction failed (${response.status} ${response.statusText})`,
 			response.status,

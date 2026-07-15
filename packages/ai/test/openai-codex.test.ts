@@ -367,6 +367,16 @@ describe("openai-codex error parsing", () => {
 		expect(info.rateLimits?.primary?.used_percent).toBe(99);
 	});
 
+	it("parses machine codes from Codex detail envelopes", async () => {
+		const response = new Response(JSON.stringify({ detail: { code: "deactivated_workspace" } }), { status: 402 });
+
+		const error = await CodexApiError.fromResponse(response);
+
+		expect(error.status).toBe(402);
+		expect(error.code).toBe("deactivated_workspace");
+		expect(error.info.raw).toBe('{"detail":{"code":"deactivated_workspace"}}');
+	});
+
 	it("CodexApiError carries status/headers/code for structural retry classification", async () => {
 		const response = new Response(JSON.stringify({ error: { code: "rate_limit_exceeded", message: "slow down" } }), {
 			status: 429,
