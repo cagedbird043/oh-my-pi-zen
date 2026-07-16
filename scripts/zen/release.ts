@@ -2,6 +2,7 @@
 
 import { $, Glob } from "bun";
 import { runChangelogFixer } from "../fix-changelogs";
+import { ZEN_REPOSITORY } from "./package-map";
 
 const changelogGlob = new Glob("packages/*/CHANGELOG.md");
 const packageJsonGlob = new Glob("packages/*/package.json");
@@ -17,7 +18,8 @@ async function watchCI(): Promise<boolean> {
 	console.log(`  Commit: ${commitSha.slice(0, 8)}`);
 
 	while (true) {
-		const runsOutput = await $`gh run list --commit ${commitSha} --json databaseId,status,conclusion,name`.text();
+		const runsOutput =
+			await $`gh run list --repo ${ZEN_REPOSITORY} --commit ${commitSha} --json databaseId,status,conclusion,name`.text();
 		const runs: Array<{ databaseId: number; status: string; conclusion: string | null; name: string }> =
 			JSON.parse(runsOutput);
 
@@ -241,7 +243,7 @@ async function cmdRelease(versionArg: string, options: { watchCi: boolean }): Pr
 		const success = await watchCI();
 		if (!success) process.exit(1);
 	} else {
-		console.log("Skipping CI watch (--no-watch).");
+		console.log("Skipping CI watch; use the `watch` subcommand or pass `--watch` to wait here.");
 	}
 	console.log(`=== Released ${tagName} ===`);
 }
@@ -253,11 +255,11 @@ async function cmdWatch(): Promise<void> {
 
 export async function main(args: readonly string[] = process.argv.slice(2)): Promise<void> {
 	const arg = args[0];
-	const watchCi = !args.includes("--no-watch");
+	const watchCi = args.includes("--watch");
 	if (!arg) {
 		console.error("Usage:");
-		console.error("  bun scripts/zen/release.ts <version|next> [--no-watch]   Full Zen release");
-		console.error("  bun scripts/zen/release.ts watch                         Watch CI for current commit");
+		console.error("  bun scripts/zen/release.ts <version|next> [--watch]   Full Zen release");
+		console.error("  bun scripts/zen/release.ts watch                      Watch CI for current commit");
 		process.exit(1);
 	}
 
