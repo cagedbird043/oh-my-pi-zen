@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Automatically invalidate and rotate OAuth credentials when an upstream provider reports an invalidated OAuth or authentication token, including Codex's `Your authentication token has been invalidated` response.
+
 ## [16.5.2-zen.1] - 2026-07-15
 
 ### Fixed

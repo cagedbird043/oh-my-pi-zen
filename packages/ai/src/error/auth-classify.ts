@@ -16,6 +16,19 @@ export function isDefinitiveOAuthFailure(errorMsg: string): boolean {
 	return isOAuthExpiry(errorMsg);
 }
 
+const INVALIDATED_OAUTH_TOKEN_PATTERN =
+	/\b(?:invalidated oauth token|(?:authentication|oauth) token (?:has been )?invalidated)\b/i;
+
+/** Whether an upstream response explicitly says the supplied OAuth bearer was invalidated. */
+export function isInvalidatedOAuthTokenError(error: unknown): boolean {
+	if (typeof error === "object" && error !== null && "errorMessage" in error) {
+		const errorMessage = error.errorMessage;
+		if (typeof errorMessage === "string" && INVALIDATED_OAUTH_TOKEN_PATTERN.test(errorMessage)) return true;
+	}
+	const message = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+	return message !== undefined && INVALIDATED_OAUTH_TOKEN_PATTERN.test(message);
+}
+
 /**
  * Whether an upstream failure should rotate to a sibling credential: a hard
  * `401`, a credential-specific Codex workspace rejection (including
@@ -27,6 +40,7 @@ export function isDefinitiveOAuthFailure(errorMsg: string): boolean {
  */
 export function isAuthRetryableError(error: unknown): boolean {
 	if (isUsageLimit(error)) return true;
+	if (isInvalidatedOAuthTokenError(error)) return true;
 	const httpStatus = extractHttpStatusFromError(error);
 	if (httpStatus === 401) return true;
 	const code =
