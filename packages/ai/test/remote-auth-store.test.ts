@@ -179,7 +179,7 @@ describe("RemoteAuthCredentialStore + AuthStorage integration", () => {
 		};
 
 		const rotated = await clientStorage.rotateSessionCredential("anthropic", "invalidated-session", {
-			error: new Error("Encountered invalidated oauth token for user, failing request"),
+			error: new Error("Your authentication token has been invalidated. Please try signing in again."),
 			apiKey: first.accessToken,
 			credentialId: first.credentialId,
 		});

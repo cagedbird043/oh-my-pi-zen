@@ -16,7 +16,8 @@ export function isDefinitiveOAuthFailure(errorMsg: string): boolean {
 	return isOAuthExpiry(errorMsg);
 }
 
-const INVALIDATED_OAUTH_TOKEN_PATTERN = /\binvalidated oauth token\b/i;
+const INVALIDATED_OAUTH_TOKEN_PATTERN =
+	/\b(?:invalidated oauth token|(?:authentication|oauth) token (?:has been )?invalidated)\b/i;
 
 /** Whether an upstream response explicitly says the supplied OAuth bearer was invalidated. */
 export function isInvalidatedOAuthTokenError(error: unknown): boolean {

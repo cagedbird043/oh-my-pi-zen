@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Automatically invalidate and rotate OAuth credentials when an "invalidated oauth token" error occurs
+- Automatically invalidates and rotates OAuth credentials when an upstream provider reports an invalidated OAuth or authentication token, including Codex's `Your authentication token has been invalidated` response.
 
 ## [17.0.1] - 2026-07-16
 

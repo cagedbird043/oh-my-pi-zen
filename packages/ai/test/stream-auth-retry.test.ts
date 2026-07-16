@@ -199,7 +199,7 @@ describe("streamSimple resolver auth retry", () => {
 		expect(keys).toEqual(["old-key", "new-key"]);
 	});
 
-	it("retries when Codex reports an invalidated OAuth token without an HTTP status", async () => {
+	it("retries when Codex says the authentication token was invalidated without an HTTP status", async () => {
 		const keys: unknown[] = [];
 		registerCustomApi(
 			API,
@@ -212,7 +212,9 @@ describe("streamSimple resolver auth retry", () => {
 						stream.push({
 							type: "error",
 							reason: "error",
-							error: assistantError("Encountered invalidated oauth token for user, failing request"),
+							error: assistantError(
+								"Your authentication token has been invalidated. Please try signing in again.",
+							),
 						});
 						return;
 					}
