@@ -10203,8 +10203,7 @@ export class AgentSession {
 			// strategy instead follows automatic compaction and may fall back to an LLM
 			// on text-only models (issue #5064).
 			const unicodeSnapcompact = effectiveSettings.strategy === "unicode-snapcompact";
-			const explicitSnapcompact =
-				compactMode?.name === "snapcompact" || compactMode?.name === "unicode-snapcompact";
+			const explicitSnapcompact = compactMode?.name === "snapcompact" || compactMode?.name === "unicode-snapcompact";
 			let snapcompactReady = wantsSnapcompact;
 			const snapcompactShapeSetting = this.settings.get("snapcompact.shape");
 			const unicodeSnapcompactShapeSetting = this.settings.get("snapcompact.unicodeShape");

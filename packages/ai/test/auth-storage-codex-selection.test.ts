@@ -1639,6 +1639,8 @@ describe("AuthStorage codex oauth ranking", () => {
 			modelId: "gpt-5.6-sol",
 		});
 		expect(apiKey).toBe("api-acct-paid");
+	});
+
 	test("keeps an eligible K-12 OAuth account usable for Sol when a Plus sibling becomes exhausted", async () => {
 		if (!authStorage) throw new Error("test setup failed");
 

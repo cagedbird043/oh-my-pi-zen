@@ -977,9 +977,11 @@ export function serializeConversation(messages: Message[], options?: SerializeOp
 
 function textBlocks(content: Message["content"]): string[] {
 	if (typeof content === "string") return [content];
-	return content
-		.filter((block): block is { type: "text"; text: string } => block.type === "text")
-		.map(block => block.text);
+	const texts: string[] = [];
+	for (const block of content) {
+		if (block.type === "text") texts.push(block.text);
+	}
+	return texts;
 }
 
 function stripCodeBlocks(text: string): string {

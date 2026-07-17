@@ -77,9 +77,9 @@ describe("isAuthRetryableError", () => {
 		expect(isAuthRetryableError(Object.assign(new Error("429 too many requests"), { status: 429 }))).toBe(false);
 		expect(isAuthRetryableError("Error: 401 unauthorized")).toBe(true);
 		expect(isAuthRetryableError("Encountered invalidated oauth token for user, failing request")).toBe(true);
-		expect(
-			isAuthRetryableError("Your authentication token has been invalidated. Please try signing in again."),
-		).toBe(true);
+		expect(isAuthRetryableError("Your authentication token has been invalidated. Please try signing in again.")).toBe(
+			true,
+		);
 		// xAI SuperGrok surfaces account exhaustion as 403 + "run out of credits" /
 		// spending-limit, not 429. Must rotate so multi-account xai-oauth pools work.
 		expect(
