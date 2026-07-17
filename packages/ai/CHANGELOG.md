@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [17.0.1-zen.1] - 2026-07-17
+
 ### Fixed
 
 - Automatically invalidates and rotates OAuth credentials when an upstream provider reports an invalidated OAuth or authentication token, including Codex's `Your authentication token has been invalidated` response.
@@ -32,6 +34,13 @@
 
 - Fixed Cursor TLS connection resets causing process-fatal uncaught exceptions, allowing the active turn to fail or retry gracefully without terminating the session.
 - Fixed Amazon Bedrock stream error handling to correctly handle non-Error values that cannot be serialized by JSON.stringify.
+
+## [16.5.2-zen.1] - 2026-07-15
+
+### Fixed
+
+- Fixed Codex `deactivated_workspace` responses not triggering sibling credential rotation, including the backend's `detail.code` error envelope.
+- Fixed OAuth credential resolution returning "No API key found" when every plan-eligible OpenAI Codex account was rate-limit blocked and the only unblocked account failed the model's plan gate: resolution now runs a last-resort ladder that first yields a plan-fitting account regardless of usage blocks (so callers get real usage-limit retry semantics), then tries every account with the plan filter dropped before reporting no credential
 
 ## [16.5.2] - 2026-07-14
 
@@ -88,37 +97,32 @@
 
 - Removed automatic /interactions chaining for follow-up turns in Google provider calls, along with the useInteractionsApi, storeInteraction, and previousInteractionId stream options.
 
-## [16.4.6] - 2026-07-12
-### Fixed
-
-- Fixed Codex `deactivated_workspace` responses not triggering sibling credential rotation, including the backend's `detail.code` error envelope.
-
 ## [16.4.6-zen.1] - 2026-07-12
 
 ### Added
 
 - Added asynchronous `invalidateUsageCache` method to clear cached usage reports
 - Added support for cross-service usage cache invalidation between AuthStorage and AuthBroker
+
+## [16.4.6] - 2026-07-12
+
 ### Fixed
 
 - Fixed GPT-5.6 Sol/Luna OAuth routing rejecting healthy ChatGPT K-12 accounts when a paid sibling became exhausted, which could incorrectly surface a missing-credential error despite valid Codex logins.
 - Fixed Codex OAuth multi-account routing not switching away from credentials rejected because the personal access token owner is not an active member of the selected workspace; this account-specific `403` now follows the normal refresh-then-sibling rotation path while unrelated `403` responses remain non-rotatable.
-
-## [16.3.15-zen.1] - 2026-07-10
-
-### Added
-
-- Added `anysearch` registry provider definition and interactive credentials login support.
-
-### Fixed
-
-- Fixed OAuth credential resolution returning "No API key found" when every plan-eligible OpenAI Codex account was rate-limit blocked and the only unblocked account failed the model's plan gate: resolution now runs a last-resort ladder that first yields a plan-fitting account regardless of usage blocks (so callers get real usage-limit retry semantics), then tries every account with the plan filter dropped before reporting no credential
 
 ## [16.4.5] - 2026-07-11
 
 ### Fixed
 
 - Fixed an issue in GLM tool calling where missing or malformed argument closers (such as `<arg_value>` mistyped as `</arg_key>`) caused subsequent arguments to be swallowed or merged into a single field, affecting both in-band and native tool calling.
+
+## [16.4.3-zen.1] - 2026-07-11
+
+### Fixed
+
+- Fixed GPT-5.6 Sol/Luna OAuth routing rejecting healthy ChatGPT K-12 accounts when a paid sibling became exhausted, which could incorrectly surface a missing-credential error despite valid Codex logins.
+- Fixed Codex OAuth multi-account routing not switching away from credentials rejected because the personal access token owner is not an active member of the selected workspace; this account-specific `403` now follows the normal refresh-then-sibling rotation path while unrelated `403` responses remain non-rotatable.
 
 ## [16.4.3] - 2026-07-11
 

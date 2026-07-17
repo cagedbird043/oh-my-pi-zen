@@ -36,6 +36,7 @@
 
 - Added an automated image-dropping rescue tier to compaction dead-end recovery.
 - Added visual warnings and detailed recovery instructions to the session timeline when compaction fails to free sufficient space.
+
 ### Fixed
 
 - Fixed Codex V1/V2 remote compaction discarding structured provider errors, allowing deactivated workspaces to rotate credentials instead of failing compaction.
