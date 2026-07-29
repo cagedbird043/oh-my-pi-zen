@@ -16,10 +16,17 @@ import { $ } from "bun";
 import { theme } from "../modes/theme/theme";
 import { isTimeoutError, withTimeoutSignal } from "../utils/fetch-timeout";
 
-const REPO = "can1357/oh-my-pi";
-const PACKAGE = "@oh-my-pi/pi-coding-agent";
-const HOMEBREW_FORMULA = "can1357/tap/omp";
-const MISE_TOOL = "github:can1357/oh-my-pi";
+const IS_COMPILED_BINARY = process.env.PI_COMPILED === "true";
+const REPO = IS_COMPILED_BINARY ? (process.env.PI_UPDATE_REPO ?? "can1357/oh-my-pi") : "can1357/oh-my-pi";
+const PACKAGE = IS_COMPILED_BINARY
+	? (process.env.PI_UPDATE_PACKAGE ?? "@oh-my-pi/pi-coding-agent")
+	: "@oh-my-pi/pi-coding-agent";
+const HOMEBREW_FORMULA = IS_COMPILED_BINARY
+	? (process.env.PI_UPDATE_HOMEBREW_FORMULA ?? "can1357/tap/omp")
+	: "can1357/tap/omp";
+const MISE_TOOL = IS_COMPILED_BINARY
+	? (process.env.PI_UPDATE_MISE_TOOL ?? "github:can1357/oh-my-pi")
+	: "github:can1357/oh-my-pi";
 /**
  * Official npm registry origin.
  *
@@ -42,7 +49,10 @@ const BINARY_DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
  * disk; see {@link buildBunInstallArgs} for why this must be installed
  * explicitly rather than inherited as a transitive dependency.
  */
-const NATIVES_PACKAGE = "@oh-my-pi/pi-natives";
+const NATIVES_PACKAGE = PACKAGE.replace(/\/pi-coding-agent$/, "/pi-natives");
+const isZenDistribution = PACKAGE.startsWith("@oh-my-pi-zen/");
+const RELEASE_TAG_PREFIX = isZenDistribution ? "zen/v" : "v";
+const RELEASE_BINARY_BASENAME = isZenDistribution ? "omp-zen" : APP_NAME;
 
 /**
  * Platform tags the release pipeline publishes as
@@ -185,7 +195,7 @@ async function getReleaseBinaryAsset(
 	fetchImpl: Fetch = fetch,
 	githubToken: string | undefined = $env.GITHUB_TOKEN || $env.GH_TOKEN,
 ): Promise<ReleaseBinaryAsset> {
-	const tag = `v${expectedVersion}`;
+	const tag = `${RELEASE_TAG_PREFIX}${expectedVersion}`;
 	const headers: Record<string, string> = {
 		Accept: "application/vnd.github+json",
 		"X-GitHub-Api-Version": "2022-11-28",
@@ -551,9 +561,10 @@ async function getLatestRelease(): Promise<ReleaseInfo> {
 		throw new Error("Malformed npm registry response: missing version");
 	}
 	const version = data.version;
+	const tag = `${RELEASE_TAG_PREFIX}${version}`;
 
 	return {
-		tag: `v${version}`,
+		tag,
 		version,
 		dist: resolveReleaseDist(data),
 	};
@@ -836,9 +847,9 @@ function getBinaryName(): string {
 	}
 
 	if (os === "windows") {
-		return `${APP_NAME}-${os}-${archName}.exe`;
+		return `${RELEASE_BINARY_BASENAME}-${os}-${archName}.exe`;
 	}
-	return `${APP_NAME}-${os}-${archName}`;
+	return `${RELEASE_BINARY_BASENAME}-${os}-${archName}`;
 }
 
 /**
@@ -856,8 +867,8 @@ async function verifyBinaryAtPath(binaryPath: string, expectedVersion: string): 
 		const result = await $`${binaryPath} --version`.quiet().nothrow();
 		if (result.exitCode !== 0) return { ok: false, path: binaryPath };
 		const output = result.text().trim();
-		// Output format: "omp/X.Y.Z"
-		const match = output.match(/\/(\d+\.\d+\.\d+)/);
+		// Output format: "omp/X.Y.Z" or "omp/X.Y.Z-prerelease.N".
+		const match = output.match(/\/(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)/);
 		const actual = match?.[1];
 		return { ok: actual === expectedVersion, actual, path: binaryPath };
 	} catch {
