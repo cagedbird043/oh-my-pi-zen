@@ -25,8 +25,12 @@ import { isFireworksFastModelId, toFireworksBaseModelId } from "@oh-my-pi/pi-cat
 import { modelsAreEqual } from "@oh-my-pi/pi-catalog/models";
 import { extractRetryHint, logger, prompt } from "@oh-my-pi/pi-utils";
 import type { ModelRegistry } from "../config/model-registry";
-import { formatModelStringWithRouting, resolveModelOverride } from "../config/model-resolver";
-
+import {
+	formatModelSelectorValue,
+	formatModelStringWithRouting,
+	resolveConfiguredModelPatterns,
+	resolveModelOverride,
+} from "../config/model-resolver";
 import type { Settings } from "../config/settings";
 import type { RetryErrorUpdate } from "../extensibility/shared-events";
 import emptyStopRetryTemplate from "../prompts/system/empty-stop-retry.md" with { type: "text" };
@@ -1209,11 +1213,34 @@ export class TurnRecovery {
 		return {
 			chains: this.#getRetryFallbackChains(),
 			getModelRole: role => this.#host.settings.getModelRole(role),
+			getModelRoleCandidates: role => this.#resolveRoleRetryFallbackSelectors(role),
 			modelLookup: this.#host.modelRegistry,
 		};
 	}
 	#getRetryFallbackChains(): RetryFallbackChains {
-		return getRetryFallbackChains(this.#host.settings);
+		const chains = getRetryFallbackChains(this.#host.settings);
+		for (const role of Object.keys(this.#host.settings.getModelRoles())) {
+			if (chains[role] !== undefined) continue;
+			const candidates = this.#resolveRoleRetryFallbackSelectors(role);
+			if (candidates.length > 1) chains[role] = candidates.slice(1).map(candidate => candidate.raw);
+		}
+		return chains;
+	}
+
+	#resolveRoleRetryFallbackSelectors(role: string): RetryFallbackSelector[] {
+		const configured = this.#host.settings.getModelRole(role);
+		if (!configured) return [];
+		const selectors: RetryFallbackSelector[] = [];
+		for (const pattern of resolveConfiguredModelPatterns(configured, this.#host.settings)) {
+			const resolved = resolveModelOverride([pattern], this.#host.modelRegistry, this.#host.settings);
+			if (!resolved.model) continue;
+			const raw = resolved.explicitThinkingLevel
+				? formatModelSelectorValue(formatModelStringWithRouting(resolved.model), resolved.thinkingLevel)
+				: formatModelStringWithRouting(resolved.model);
+			const selector = parseRetryFallbackSelector(raw, this.#host.modelRegistry);
+			if (selector && !selectors.some(existing => existing.raw === selector.raw)) selectors.push(selector);
+		}
+		return selectors;
 	}
 
 	#validateRetryFallbackChains(): void {
