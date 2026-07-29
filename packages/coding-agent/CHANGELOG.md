@@ -23,6 +23,7 @@
 
 ### Fixed
 
+- Fixed transient socket-close and `stream_read_error` failures advancing model fallback chains; they now retry the active model/provider within the configured retry budget.
 - Fixed `omp config list --json` output truncation at 64 KiB when stdout is piped.
 - Fixed vim-style navigation (`h`/`j`/`k`/`l`) under the Kitty keyboard protocol.
 - Fixed `/guided-goal` throwing `Model not found` errors on websocket-only Codex models by routing the interview through the session's provider transport and reusing a single isolated side session.
