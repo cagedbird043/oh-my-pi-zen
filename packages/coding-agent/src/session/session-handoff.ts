@@ -135,7 +135,7 @@ export class SessionHandoff {
 			}
 			const apiKey = await this.#host.modelRegistry.getApiKey(model, this.#host.sessionId());
 			if (!apiKey) {
-				throw new Error(`No API key for ${model.provider}`);
+				throw new Error(`No usable authentication credential found for ${model.provider}`);
 			}
 
 			// Build the handoff request through the SAME pipeline a live turn uses
