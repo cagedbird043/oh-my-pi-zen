@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 import { Settings } from "../../../../src/config/settings";
 import { StatusLineComponent } from "../../../../src/modes/components/status-line/component";
-import { getThemeByName, setThemeInstance } from "../../../../src/modes/theme/theme";
-import type { AgentSession } from "../../../../src/session/agent-session";
 import { renderSegment } from "../../../../src/modes/components/status-line/segments";
 import type { SegmentContext } from "../../../../src/modes/components/status-line/types";
+import { getThemeByName, setThemeInstance } from "../../../../src/modes/theme/theme";
+import type { AgentSession } from "../../../../src/session/agent-session";
 
 function makeSessionWithLastMessage(
 	lastMessage: unknown,
@@ -92,6 +92,10 @@ function makeSegmentContext(overrides: Partial<SegmentContext> = {}): SegmentCon
 			output: 0,
 			cacheRead: 0,
 			cacheWrite: 0,
+			totalTokens: 0,
+			orchestrationInput: 0,
+			orchestrationOutput: 0,
+			orchestrationCacheRead: 0,
 			premiumRequests: 0,
 			cost: 0,
 			tokensPerSecond: null,
@@ -106,6 +110,8 @@ function makeSegmentContext(overrides: Partial<SegmentContext> = {}): SegmentCon
 		worktree: null,
 		usage: null,
 		...overrides,
+		prewalk: overrides.prewalk ?? null,
+		vibeMode: overrides.vibeMode ?? null,
 	};
 }
 

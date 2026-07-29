@@ -15,7 +15,7 @@ export function isDefinitiveOAuthFailure(errorMsg: string): boolean {
 }
 
 const INVALIDATED_OAUTH_TOKEN_PATTERN =
-\t/\b(?:invalidated oauth token|(?:authentication|oauth) token (?:has been )?invalidated)\b/i;
+	/\b(?:invalidated oauth token|(?:authentication|oauth) token (?:has been )?invalidated)\b/i;
 
 /** Whether an upstream response explicitly says the supplied OAuth bearer was invalidated. */
 export function isInvalidatedOAuthTokenError(error: unknown): boolean {
@@ -39,18 +39,18 @@ export function isInvalidatedOAuthTokenError(error: unknown): boolean {
  * upstream-backoff lane.
  */
 export function isAuthRetryableError(error: unknown): boolean {
-\tif (isUsageLimit(error)) return true;
-\tif (isInvalidatedOAuthTokenError(error)) return true;
-\tconst httpStatus = extractHttpStatusFromError(error);
-\tif (httpStatus === 401 || httpStatus === 403) return true;
-\tconst code =
-\t\ttypeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-\t\t\t? error.code
-\t\t\t: undefined;
-\tif (code && CODEX_DEACTIVATED_WORKSPACE_PATTERN.test(code)) return true;
-\tconst message = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
-\tif (message && CODEX_DEACTIVATED_WORKSPACE_PATTERN.test(message)) return true;
-\tconst embeddedStatus = message ? extractHttpStatusFromError({ message }) : undefined;
-\tif (embeddedStatus === 401 || embeddedStatus === 403) return true;
-\treturn isUsageLimitOutcome(httpStatus ?? embeddedStatus, message);
+	if (isUsageLimit(error)) return true;
+	if (isInvalidatedOAuthTokenError(error)) return true;
+	const httpStatus = extractHttpStatusFromError(error);
+	if (httpStatus === 401 || httpStatus === 403) return true;
+	const code =
+		typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+			? error.code
+			: undefined;
+	if (code && CODEX_DEACTIVATED_WORKSPACE_PATTERN.test(code)) return true;
+	const message = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+	if (message && CODEX_DEACTIVATED_WORKSPACE_PATTERN.test(message)) return true;
+	const embeddedStatus = message ? extractHttpStatusFromError({ message }) : undefined;
+	if (embeddedStatus === 401 || embeddedStatus === 403) return true;
+	return isUsageLimitOutcome(httpStatus ?? embeddedStatus, message);
 }
