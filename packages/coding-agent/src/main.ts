@@ -96,6 +96,7 @@ import { concreteThinkingLevel, parseConfiguredThinkingLevel } from "./thinking"
 import type { LspStartupServerInfo } from "./tools";
 import { getChangelogPath, resolveStartupChangelogForDisplay, type StartupChangelogSelection } from "./utils/changelog";
 import { EventBus } from "./utils/event-bus";
+import { checkForNewVersion } from "./utils/update-check";
 
 type RunAcpMode = (createSession: AcpSessionFactory) => Promise<never>;
 type RunPrintMode = (session: AgentSession, options: PrintModeOptions) => Promise<void>;
@@ -110,17 +111,7 @@ export function writeStartupNotice(parsedArgs: Pick<Args, "mode">, text: string)
 	(parsedArgs.mode === "json" ? process.stderr : process.stdout).write(text);
 }
 
-async function checkForNewVersion(currentVersion: string): Promise<string | undefined> {
-	if (!settings.get("startup.checkUpdate")) {
-		return;
-	}
-	try {
-		const release = await getLatestRelease({ timeoutMs: 5_000 });
-		return Bun.semver.order(release.version, currentVersion) > 0 ? release.version : undefined;
-	} catch {
-		return undefined;
-	}
-}
+
 
 // Todo settings are caller-controlled in protocol modes. Do not host-default them:
 // embedders need project-level opt-outs for reminder/prelude prompt injection.
