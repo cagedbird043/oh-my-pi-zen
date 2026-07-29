@@ -40,6 +40,8 @@ export interface RetryFallbackResolutionContext {
 	chains: RetryFallbackChains;
 	getModelRole(role: string): string | undefined;
 	modelLookup: RetryFallbackModelLookup;
+	/** Ordered selectors resolved from a role value that contains model patterns. */
+	getModelRoleCandidates?(role: string): RetryFallbackSelector[];
 }
 
 /** Active retry fallback state retained until the primary can be restored. */
@@ -219,6 +221,8 @@ function getRetryFallbackPrimarySelector(
 ): RetryFallbackSelector | undefined {
 	if (isRetryFallbackWildcardKey(chainKey)) return undefined;
 	if (isRetryFallbackModelKey(chainKey)) return parseRetryFallbackSelector(chainKey, context.modelLookup);
+	const candidates = context.getModelRoleCandidates?.(chainKey);
+	if (candidates?.[0]) return candidates[0];
 	const configuredSelector = context.getModelRole(chainKey);
 	return configuredSelector ? parseRetryFallbackSelector(configuredSelector, context.modelLookup) : undefined;
 }
