@@ -382,4 +382,14 @@ describe("openai-codex error parsing", () => {
 		expect(error.headers?.get("retry-after")).toBe("7");
 		expect(error.message).toContain("rate limit exceeded");
 	});
+	it("parses machine codes from Codex detail envelopes", async () => {
+		const response = new Response(JSON.stringify({ detail: { code: "deactivated_workspace" } }), { status: 402 });
+
+		const error = await CodexApiError.fromResponse(response);
+
+		expect(error.status).toBe(402);
+		expect(error.code).toBe("deactivated_workspace");
+		expect(error.info.raw).toBe('{"detail":{"code":"deactivated_workspace"}}');
+	});
 });
+
