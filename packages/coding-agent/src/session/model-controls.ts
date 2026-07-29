@@ -213,7 +213,7 @@ export class ModelControls {
 	): Promise<{ switched: boolean }> {
 		const previousEditMode = this.#host.resolveActiveEditMode();
 		if (!this.#host.modelRegistry.hasConfiguredAuth(model)) {
-			throw new Error(`No API key for ${model.provider}/${model.id}`);
+			throw new Error(`No authentication credential configured for ${model.provider}/${model.id}`);
 		}
 
 		const targetModel = await this.#host.modelRegistry.refreshSelectedModelMetadata(model);
@@ -249,7 +249,7 @@ export class ModelControls {
 	 * Validates that a credential source is configured (synchronously, without
 	 * refreshing OAuth or running command-backed key programs), saves to session
 	 * log but NOT to settings.
-	 * @throws Error if no API key available for the model
+	 * @throws Error if no authentication credential is configured for the model
 	 */
 	async setModelTemporary(
 		model: Model,
@@ -258,7 +258,7 @@ export class ModelControls {
 	): Promise<void> {
 		const previousEditMode = this.#host.resolveActiveEditMode();
 		if (!this.#host.modelRegistry.hasConfiguredAuth(model)) {
-			throw new Error(`No API key for ${model.provider}/${model.id}`);
+			throw new Error(`No authentication credential configured for ${model.provider}/${model.id}`);
 		}
 
 		const targetModel = await this.#host.modelRegistry.refreshSelectedModelMetadata(model);
@@ -451,7 +451,7 @@ export class ModelControls {
 
 		const apiKey = await this.#host.modelRegistry.getApiKey(nextModel, this.#host.sessionId());
 		if (!apiKey) {
-			throw new Error(`No API key for ${nextModel.provider}/${nextModel.id}`);
+			throw new Error(`No usable authentication credential found for ${nextModel.provider}/${nextModel.id}`);
 		}
 
 		this.#host.modelRegistry.clearSuppressedSelector(formatModelStringWithRouting(nextModel));

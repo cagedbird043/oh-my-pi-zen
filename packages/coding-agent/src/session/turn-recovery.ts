@@ -1470,7 +1470,7 @@ export class TurnRecovery {
 			options?.apiKey ??
 			(await this.#host.modelRegistry.getApiKey(candidate, this.#host.sessionId(), { signal: options?.signal }));
 		if (!apiKey) {
-			throw new Error(`No API key for retry fallback ${selector.raw}`);
+			throw new Error(`No usable authentication credential found for retry fallback ${selector.raw}`);
 		}
 		if (options?.signal?.aborted) return false;
 
