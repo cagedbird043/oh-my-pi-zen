@@ -2,6 +2,8 @@ import { extractHttpStatusFromError } from "@oh-my-pi/pi-utils";
 import { isOAuthExpiry, isUsageLimit } from "./flags";
 import { isConcurrencyCapExclusion, isUsageLimitOutcome } from "./rate-limit";
 
+const CODEX_DEACTIVATED_WORKSPACE_PATTERN = /\bdeactivated_workspace\b/i;
+
 /**
  * Whether an OAuth refresh failure is definitive (the credential must be
  * disabled) versus transient. Thin alias over the {@link Flag.OAuthExpiry}
@@ -12,7 +14,8 @@ export function isDefinitiveOAuthFailure(errorMsg: string): boolean {
 	return isOAuthExpiry(errorMsg);
 }
 
-const INVALIDATED_OAUTH_TOKEN_PATTERN = /\binvalidated oauth token\b/i;
+const INVALIDATED_OAUTH_TOKEN_PATTERN =
+\t/\b(?:invalidated oauth token|(?:authentication|oauth) token (?:has been )?invalidated)\b/i;
 
 /** Whether an upstream response explicitly says the supplied OAuth bearer was invalidated. */
 export function isInvalidatedOAuthTokenError(error: unknown): boolean {
@@ -27,8 +30,9 @@ export function isInvalidatedOAuthTokenError(error: unknown): boolean {
 /**
  * Whether an upstream failure should rotate to a sibling credential: a hard
  * `401`, a `403` (token valid but access denied — plan, model policy, or org
- * restriction a sibling account may not share), a body-classified usage limit
- * (Codex `usage_limit_reached`, Anthropic account rate-limit, Google
+ * restriction a sibling account may not share), a Codex
+ * `deactivated_workspace` response, a body-classified usage limit (Codex
+ * `usage_limit_reached`, Anthropic account rate-limit, Google
  * `resource_exhausted`, OpenAI `insufficient_quota`, …), or a bare `429`
  * whose payload did not preserve a richer quota code.
  * Transient 429s (`Too many requests`, per-minute caps) stay in the
@@ -38,7 +42,13 @@ export function isAuthRetryableError(error: unknown): boolean {
 	if (isUsageLimit(error)) return true;
 	if (isInvalidatedOAuthTokenError(error)) return true;
 	const httpStatus = extractHttpStatusFromError(error);
+	const code =
+		typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+			? error.code
+			: undefined;
 	const message = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+	if (code && CODEX_DEACTIVATED_WORKSPACE_PATTERN.test(code)) return true;
+	if (message && CODEX_DEACTIVATED_WORKSPACE_PATTERN.test(message)) return true;
 	const embeddedStatus = message ? extractHttpStatusFromError({ message }) : undefined;
 	const status = httpStatus ?? embeddedStatus;
 	if (isConcurrencyCapExclusion(status, message)) return false;
