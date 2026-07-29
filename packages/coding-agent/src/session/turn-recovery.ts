@@ -23,7 +23,7 @@ import * as AIError from "@oh-my-pi/pi-ai/error";
 import { kCursorExecResolved } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { isFireworksFastModelId, toFireworksBaseModelId } from "@oh-my-pi/pi-catalog/fireworks-model-id";
 import { modelsAreEqual } from "@oh-my-pi/pi-catalog/models";
-import { extractRetryHint, logger, prompt } from "@oh-my-pi/pi-utils";
+import { extractRetryHint, isUnexpectedSocketCloseMessage, logger, prompt } from "@oh-my-pi/pi-utils";
 import type { ModelRegistry } from "../config/model-registry";
 import {
 	formatModelSelectorValue,
@@ -1614,6 +1614,11 @@ export class TurnRecovery {
 		const retryBudgetExhausted = this.#retryAttempt > maxRetries;
 
 		const errorMessage = message.errorMessage || "Unknown error";
+		// Transport-layer stream drops say nothing about model/provider health.
+		// Retry the active selector within the configured retry budget; never
+		// suppress it or advance a fallback chain for these failures.
+		const transportRetryOnly =
+			AIError.isStreamReadErrorText(errorMessage) || isUnexpectedSocketCloseMessage(errorMessage);
 		const id = this.#classifyRetryMessage(message);
 		const staleOpenAIResponsesReplayError = AIError.is(id, AIError.Flag.StaleResponsesItem);
 		const recordedUsageLimitOutcome = await this.#usageLimitOutcomes.get(message);
@@ -1691,6 +1696,7 @@ export class TurnRecovery {
 			// last resort is for provider failures, not classifier decisions.
 			if (
 				!this.#isRelayHtmlTransient(message) &&
+				!transportRetryOnly &&
 				allowModelFallback &&
 				retrySettings.modelFallback &&
 				!(retryBudgetExhausted && classifierRefusal)
@@ -1707,6 +1713,7 @@ export class TurnRecovery {
 			if (
 				!switchedModel &&
 				!this.#isRelayHtmlTransient(message) &&
+				!transportRetryOnly &&
 				allowModelFallback &&
 				options?.fireworksFastFallback
 			) {
