@@ -177,16 +177,30 @@ jobs:
          # suppress the addon half on every later exact hit. Validation
          # actions are seeded by the main cache warmer's combined archive.
 
-   # Builds the native addons every downstream job installs. TS-only PRs
-   # restore the prebuilt Linux x64 pair published by trusted main builds
-   # (exact content-addressed key, smoke-loaded before use) and skip Bazel
-   # entirely; anything else builds with bazel. Main builds all Linux-hosted
-   # targets, pull requests only the x64 pair tests require.
+   # Builds only the Linux x64 addon pair every TS test shard installs. Exact
+   # content-addressed artifacts from trusted main builds skip Bazel on any
+   # later event; a miss builds only this test pair. Release-only ARM/macOS
+   # targets are built independently by the release matrix below.
    native_addons:
       name: Build native addons (bazel)
       runs-on: ubuntu-22.04
+      needs: [release_metadata]
+      timeout-minutes: 30
+      concurrency:
+         # Release and later main pushes may carry identical native inputs.
+         # Serialize producers so the follower can consume the first cache
+         # instead of duplicating a cold build.
+         group: native-addons-${{ github.repository }}-${{ github.ref }}
+         cancel-in-progress: false
       steps:
          - uses: actions/checkout@v4
+         - name: Preflight native toolchain
+           shell: bash
+           run: |
+              set -euo pipefail
+              command -v node
+              command -v bazelisk
+              node --version
          - id: inputs
            uses: ./.github/actions/native-inputs
          # Trusted fast path. Exact-key restores only — a prefix fallback
@@ -195,7 +209,6 @@ jobs:
          # build profile + input hash; see native-inputs action).
          - name: Restore prebuilt native addons
            id: prebuilt
-           if: github.event_name == 'pull_request'
            uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
            with:
               path: ~/.cache/omp-native-addons
@@ -212,17 +225,15 @@ jobs:
               cp ~/.cache/omp-native-addons/pi_natives.linux-x64-baseline.node bazel-bin/natives-linux-x64-baseline/
               cp ~/.cache/omp-native-addons/pi_natives.linux-x64-modern.node bazel-bin/natives-linux-x64-modern/
          # A poisoned cache entry must not ship: load both addons before
-         # trusting them. Failure falls back to a full build (loudly) rather
-         # than failing the PR.
+         # trusting them. Failure falls back to a full build (loudly).
          - name: Smoke cached addons
            id: smoke
            if: steps.prebuilt.outputs.cache-hit == 'true'
            shell: bash
            run: |
               set -uo pipefail
-              # NOTE: `bun -e 'require("./x.node")'` swallows dlopen failures
-              # (exit 0 on a bogus addon); a script file enforces them in
-              # both bun and node. Verified against a corrupt .node fixture.
+              # A script file makes Node propagate dlopen failures; inline
+              # evaluators can swallow a corrupt addon's load error.
               cat > "$RUNNER_TEMP/smoke-addons.js" <<'EOF'
               for (const f of process.argv.slice(2)) {
                const m = require(f);
@@ -232,9 +243,7 @@ jobs:
                }
               }
               EOF
-              loader=node
-              if command -v bun >/dev/null 2>&1; then loader=bun; fi
-              if "$loader" "$RUNNER_TEMP/smoke-addons.js" \
+              if node "$RUNNER_TEMP/smoke-addons.js" \
                  "$PWD/bazel-bin/natives-linux-x64-baseline/pi_natives.linux-x64-baseline.node" \
                  "$PWD/bazel-bin/natives-linux-x64-modern/pi_natives.linux-x64-modern.node"; then
                 echo "ok=true" >> "$GITHUB_OUTPUT"
@@ -261,18 +270,15 @@ jobs:
            uses: ./.github/actions/bazel-cache
            with:
               scope: linux
-         - name: Build native addons once
+         - name: Build native test addons
            if: steps.decide.outputs.needed == 'true'
-           env:
-              EVENT_NAME: ${{ github.event_name }}
            run: |
               set -eo pipefail
               if [ "$(ulimit -Sn)" != unlimited ] && [ "$(ulimit -Sn)" -lt 65536 ]; then ulimit -Sn 65536 || true; fi
-              targets=(//:natives-linux-x64-baseline //:natives-linux-x64-modern)
-              if [ "$EVENT_NAME" != "pull_request" ]; then
-                targets=(//:natives-linux-all)
-              fi
-              bazelisk --bazelrc="${{ steps.cache.outputs.rc }}" build "${targets[@]}" 2>&1 | tee "$RUNNER_TEMP/bazel-build.log"
+              bazelisk --bazelrc="${{ steps.cache.outputs.rc }}" build \
+                //:natives-linux-x64-baseline \
+                //:natives-linux-x64-modern \
+                2>&1 | tee "$RUNNER_TEMP/bazel-build.log"
          # Cache-hit visibility: a supposedly warm build that executes
          # thousands of actions is the failure mode that made CI slow — make
          # it visible in the run summary instead of discovering it weeks in.
@@ -296,7 +302,7 @@ jobs:
          # an exact-key archive is never overwritten, so bad bytes would
          # poison every TS-only PR until manual eviction.
          - name: Stage built addons for cache
-           if: github.event_name != 'pull_request'
+           if: github.event_name != 'pull_request' && steps.decide.outputs.needed == 'true'
            shell: bash
            run: |
               set -euo pipefail
@@ -305,7 +311,7 @@ jobs:
                  bazel-bin/natives-linux-x64-modern/pi_natives.linux-x64-modern.node \
                  ~/.cache/omp-native-addons/
          - name: Smoke addons before caching
-           if: github.event_name != 'pull_request'
+           if: github.event_name != 'pull_request' && steps.decide.outputs.needed == 'true'
            shell: bash
            run: |
               set -euo pipefail
@@ -319,19 +325,19 @@ jobs:
                }
               }
               EOF
-              bun "$RUNNER_TEMP/smoke-addons.js" \
+              node "$RUNNER_TEMP/smoke-addons.js" \
                 "$PWD/pi_natives.linux-x64-baseline.node" \
                 "$PWD/pi_natives.linux-x64-modern.node"
          - name: Look up native addon cache
            id: addon-cache
-           if: github.event_name != 'pull_request'
+           if: github.event_name != 'pull_request' && steps.decide.outputs.needed == 'true'
            uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
            with:
               path: ~/.cache/omp-native-addons
               key: ${{ steps.inputs.outputs.cache-key }}
               lookup-only: true
          - name: Save native addon cache
-           if: github.event_name != 'pull_request' && steps.addon-cache.outputs.cache-hit != 'true'
+           if: github.event_name != 'pull_request' && steps.decide.outputs.needed == 'true' && steps.addon-cache.outputs.cache-hit != 'true'
            uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
            with:
               path: ~/.cache/omp-native-addons
@@ -340,7 +346,9 @@ jobs:
            uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
            with:
               name: native-addons
-              path: bazel-bin/natives-*/*.node
+              path: |
+                 bazel-bin/natives-linux-x64-baseline/*.node
+                 bazel-bin/natives-linux-x64-modern/*.node
               if-no-files-found: error
               retention-days: 1
 
@@ -530,6 +538,7 @@ jobs:
                     native_targets: darwin-arm64,
                  }
       runs-on: ${{ matrix.os }}
+      timeout-minutes: 45
       permissions:
          contents: read
          id-token: write
@@ -544,6 +553,17 @@ jobs:
            with:
               node-version: "24"
               registry-url: "https://registry.npmjs.org"
+         - name: Preflight release toolchain
+           shell: bash
+           run: |
+              set -euo pipefail
+              command -v bun
+              command -v node
+              if [ "${{ matrix.target_id }}" != "linux-x64" ]; then
+                command -v bazelisk
+              fi
+              bun --version
+              node --version
          # npm runs under Bun when invoked by the release script; npm 12
          # requires a newer emulated Node version than Bun 1.3 provides.
          - name: Ensure npm supports trusted publishing
@@ -555,16 +575,16 @@ jobs:
               path: ~/.bun/install/cache
               key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
          - run: bun install --frozen-lockfile
-         # Linux and Windows addons come from the native_addons job. Darwin runners
-         # build only their own architecture because cross-hosted artifacts do
-         # not exist for macOS.
+         # The central test gate already produced Linux x64. Every other
+         # maintained release target builds only its own addon here, in
+         # parallel with the sibling release jobs.
          - name: Install prebuilt native addon(s)
-           if: matrix.platform != 'darwin'
+           if: matrix.target_id == 'linux-x64'
            uses: ./.github/actions/native-artifacts
            with:
               targets: ${{ matrix.native_targets }}
          - name: Build native addon (bazel)
-           if: matrix.platform == 'darwin'
+           if: matrix.target_id != 'linux-x64'
            uses: ./.github/actions/bazel-natives
            with:
               targets: ${{ matrix.native_targets }}
