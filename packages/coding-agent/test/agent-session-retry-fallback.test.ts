@@ -2152,6 +2152,89 @@ describe("AgentSession retry fallback", () => {
 			text: "Recovered on primary after relay retry",
 		});
 	});
+	for (const { name, errorMessage } of [
+		{
+			name: "unexpected socket closes",
+			errorMessage:
+				"Error: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()",
+		},
+		{
+			name: "stream_read_error failures",
+			errorMessage: "Error: Error Code stream_read_error: stream_read_error",
+		},
+	] as const) {
+		it(`retries ${name} on the same model instead of falling back`, async () => {
+			const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
+			const fallbackModel = getBundledModel("openai", "gpt-4o-mini");
+			if (!primaryModel || !fallbackModel) {
+				throw new Error("Expected bundled test models to exist");
+			}
+
+			const requestedModels: string[] = [];
+			const fallbackAppliedEvents: Array<Extract<AgentSessionEvent, { type: "retry_fallback_applied" }>> = [];
+			const mock = createMockModel();
+			let primaryAttempts = 0;
+			const agent = new Agent({
+				getApiKey: model => `${model.provider}-test-key`,
+				initialState: {
+					model: primaryModel,
+					systemPrompt: ["Test"],
+					tools: [],
+					messages: [],
+				},
+				streamFn: (model, context, options) => {
+					requestedModels.push(`${model.provider}/${model.id}`);
+					if (model.provider === primaryModel.provider && model.id === primaryModel.id) {
+						primaryAttempts += 1;
+						mock.push(
+							primaryAttempts === 1
+								? { throw: errorMessage }
+								: { content: ["Recovered on the original provider"] },
+						);
+					} else {
+						mock.push({ content: ["Unexpected fallback"] });
+					}
+					return mock.stream(model, context, options);
+				},
+			});
+
+			const settings = Settings.isolated({
+				"compaction.enabled": false,
+				"retry.baseDelayMs": 5,
+				"retry.fallbackChains": {
+					default: [`${fallbackModel.provider}/${fallbackModel.id}`],
+				},
+			});
+			settings.setModelRole("default", `${primaryModel.provider}/${primaryModel.id}`);
+
+			session = new AgentSession({
+				agent,
+				sessionManager: SessionManager.inMemory(),
+				settings,
+				modelRegistry,
+			});
+
+			vi.spyOn(scheduler, "wait").mockResolvedValue(undefined);
+			session.subscribe(event => {
+				if (event.type === "retry_fallback_applied") fallbackAppliedEvents.push(event);
+			});
+
+			await session.prompt(`Recover from ${name}`);
+			await session.waitForIdle();
+
+			expect(requestedModels).toEqual([
+				`${primaryModel.provider}/${primaryModel.id}`,
+				`${primaryModel.provider}/${primaryModel.id}`,
+			]);
+			expect(session.model?.provider).toBe(primaryModel.provider);
+			expect(session.model?.id).toBe(primaryModel.id);
+			expect(fallbackAppliedEvents).toHaveLength(0);
+			expect(getLastAssistantMessage(session).content).toContainEqual({
+				type: "text",
+				text: "Recovered on the original provider",
+			});
+		});
+	}
 
 	it("falls back on structured classifier refusals and pins the fallback", async () => {
 		const primaryModel = getBundledModel("anthropic", "claude-sonnet-4-5");
