@@ -128,6 +128,10 @@
 - Added an automated image-dropping rescue tier to compaction dead-end recovery.
 - Added visual warnings and detailed recovery instructions to the session timeline when compaction fails to free sufficient space.
 
+### Fixed
+
+- Fixed Codex V1/V2 remote compaction discarding structured provider errors, allowing deactivated workspaces to rotate credentials instead of failing compaction.
+
 ## [16.4.5] - 2026-07-11
 
 ### Added
@@ -163,6 +167,12 @@
 - Fixed remote compaction behavior for Codex Responses Lite (GPT-5.6 family) models across both V1 and V2 endpoints to ensure correct formatting and routing.
 - Fixed an issue where aborted tool-result hooks could trigger subsequent provider calls before the abort signal fully settled.
 
+## [16.3.15-zen.1] - 2026-07-10
+
+### Added
+
+- Added the `unicode-snapcompact` compaction strategy value for hosts that expose Unicode/CJK bitmap archive compaction.
+
 ## [16.3.12] - 2026-07-08
 
 ### Added
@@ -179,9 +189,6 @@
 ### Fixed
 
 - Fixed an issue where provider orchestration tokens were incorrectly included in context token calculations, which could trigger premature context auto-compaction and promotion.
-### Added
-
-- Added the `unicode-snapcompact` compaction strategy value for hosts that expose Unicode/CJK bitmap archive compaction.
 
 ## [16.3.3] - 2026-07-02
 
