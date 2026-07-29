@@ -2027,6 +2027,48 @@ describe("AuthStorage codex oauth ranking", () => {
 		});
 		expect(apiKey).toBe("api-acct-paid");
 	});
+	test("keeps an eligible K-12 OAuth account usable for Sol when a Plus sibling becomes exhausted", async () => {
+		if (!authStorage) throw new Error("test setup failed");
+
+		await authStorage.set("openai-codex", [
+			{ type: "oauth", ...createCredential("acct-plus", "plus@example.com") },
+			{ type: "oauth", ...createCredential("acct-k12", "k12@example.com") },
+		]);
+
+		usageByAccount.set(
+			"acct-plus",
+			createCodexUsageReport({
+				accountId: "acct-plus",
+				primary: { usedFraction: 1, resetInMs: FIVE_HOUR_MS },
+				secondary: { usedFraction: 0.35, resetInMs: WEEK_MS },
+				metadata: {
+					allowed: false,
+					limitReached: true,
+					planType: "plus",
+					email: "plus@example.com",
+				},
+			}),
+		);
+		usageByAccount.set(
+			"acct-k12",
+			createCodexUsageReport({
+				accountId: "acct-k12",
+				primary: { usedFraction: 0.06, resetInMs: FIVE_HOUR_MS },
+				secondary: { usedFraction: 0.18, resetInMs: WEEK_MS },
+				metadata: {
+					allowed: true,
+					limitReached: false,
+					planType: "k12",
+					email: "k12@example.com",
+				},
+			}),
+		);
+
+		const apiKey = await authStorage.getApiKey("openai-codex", "session-sol-k12", {
+			modelId: "gpt-5.6-sol",
+		});
+		expect(apiKey).toBe("api-acct-k12");
+	});
 
 	test("prefers Pro accounts for codex spark models over Plus accounts", async () => {
 		if (!authStorage) throw new Error("test setup failed");

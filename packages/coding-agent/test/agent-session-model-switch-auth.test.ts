@@ -130,8 +130,27 @@ describe("AgentSession model switch auth pre-flight", () => {
 		const hasAuthSpy = spyOn(registry, "hasConfiguredAuth").mockReturnValue(false);
 		spies.push(getApiKeySpy, hasAuthSpy);
 
-		await expect(s.setModel(to)).rejects.toThrow(/No API key/);
+		await expect(s.setModel(to)).rejects.toThrow(/No authentication credential configured/);
 		expect(s.model?.id).toBe(from.id);
 		expect(getApiKeySpy).not.toHaveBeenCalled();
+	});
+
+	it("describes a missing Codex OAuth token as an authentication credential instead of an API key", async () => {
+		const model = getBundledModel("openai-codex", "gpt-5.6-sol");
+		if (!model) throw new Error("Expected openai-codex/gpt-5.6-sol to exist");
+		const s = makeSession(model);
+
+		const getApiKeySpy = spyOn(registry, "getApiKey").mockResolvedValue(undefined);
+		spies.push(getApiKeySpy);
+
+		let message = "";
+		try {
+			await s.prompt("verify authentication");
+		} catch (error) {
+			message = error instanceof Error ? error.message : String(error);
+		}
+
+		expect(message).toContain("No usable authentication credential found for openai-codex");
+		expect(message).not.toContain("API key");
 	});
 });
