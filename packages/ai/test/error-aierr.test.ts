@@ -18,6 +18,16 @@ describe("AIError.classify — structural provider errors", () => {
 		expect(AIError.is(id, AIError.Flag.Transient)).toBe(true);
 	});
 
+	it("maps plain 5xx status messages to transient", () => {
+		const message = {
+			errorMessage:
+				"Error: 520 <!DOCTYPE html><html><head><title>520: Web server is returning an unknown error</title></head></html>",
+		};
+		const id = AIError.classifyMessage(message);
+		expect(AIError.is(id, AIError.Flag.Transient)).toBe(true);
+		expect(AIError.retriable(id)).toBe(true);
+	});
+
 	it("maps the overloaded_error code to transient regardless of status", () => {
 		const id = AIError.classify(new AIError.ProviderHttpError("Overloaded", 529, { code: "overloaded_error" }));
 		expect(AIError.is(id, AIError.Flag.Transient)).toBe(true);
