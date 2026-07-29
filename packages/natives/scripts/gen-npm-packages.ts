@@ -56,6 +56,8 @@ export const LEAF_TARGETS: readonly LeafTarget[] = [
 ];
 
 const packageDirDefault = path.join(import.meta.dir, "..");
+const packageScope = Bun.env.PI_NPM_PACKAGE_SCOPE ?? "@oh-my-pi";
+const repositoryUrl = Bun.env.PI_REPOSITORY_URL ?? "git+https://github.com/can1357/oh-my-pi.git";
 
 function expectedAddonFilenames(tag: string): string[] {
 	return tag.endsWith("-x64")
@@ -87,7 +89,7 @@ export function buildLeafManifest({ tag, os, cpu, files, version }: BuildLeafMan
 	}
 	const main = selectPrimaryAddonFile(tag, addonFiles);
 	return {
-		name: `@oh-my-pi/pi-natives-${tag}`,
+		name: `${packageScope}/pi-natives-${tag}`,
 		version,
 		os: [os],
 		cpu: [cpu],
@@ -96,7 +98,7 @@ export function buildLeafManifest({ tag, os, cpu, files, version }: BuildLeafMan
 		license: "MIT",
 		repository: {
 			type: "git",
-			url: "git+https://github.com/can1357/oh-my-pi.git",
+			url: repositoryUrl,
 			directory: "packages/natives",
 		},
 		engines: {
@@ -106,7 +108,7 @@ export function buildLeafManifest({ tag, os, cpu, files, version }: BuildLeafMan
 }
 
 function buildReadme(tag: string, manifest: LeafManifest): string {
-	return `# ${manifest.name}\n\nPlatform native addon package for \`@oh-my-pi/pi-natives\` on ${tag}.\n\nThis package is generated during release and installed as an optional dependency of the core package.\n`;
+	return `# ${manifest.name}\n\nPlatform native addon package for \`${packageScope}/pi-natives\` on ${tag}.\n\nThis package is generated during release and installed as an optional dependency of the core package.\n`;
 }
 
 function selectTargets(tags: readonly string[] | undefined): readonly LeafTarget[] {
