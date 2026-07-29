@@ -58,6 +58,11 @@ export const SEARCH_PROVIDER_OPTIONS = [
 		description: "Credential-free scrape of Startpage (Google-backed) results; may be bot-challenged",
 	},
 	{
+		value: "anysearch",
+		label: "AnySearch",
+		description: "Uses ANYSEARCH_API_KEY when configured; explicit selection falls back to anonymous MCP search",
+	},
+	{
 		value: "duckduckgo",
 		label: "DuckDuckGo",
 		description: "Credential-free best-effort fallback; may be bot-challenged on datacenter/shared-egress IPs",
