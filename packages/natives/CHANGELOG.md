@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [17.1.8-zen.3] - 2026-07-30
+
 ### Fixed
 
 - Fixed source and CI imports resolving a locally generated macOS embedded-addon archive on Linux; the tracked module is now the platform-neutral development stub.
