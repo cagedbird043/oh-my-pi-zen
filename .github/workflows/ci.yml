@@ -138,6 +138,10 @@ jobs:
       steps:
          - uses: actions/checkout@v4
          - uses: ./.github/actions/bun-install
+         - name: Verify source native embed stub
+           run: |
+              bun run gen:native:reset
+              git diff --exit-code -- packages/natives/native/embedded-addon.js
          - name: Type check workspace
            run: bun run ci:check:full
          - name: Build collab web
