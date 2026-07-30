@@ -2,10 +2,16 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { $ } from "bun";
 import { rewriteZenPackageText } from "./package-map";
 
 const repoRoot = path.join(import.meta.dir, "..", "..");
 const isDryRun = process.argv.includes("--dry-run");
+
+interface PreparePublishWorktreeOptions {
+	repoRoot?: string;
+	dryRun?: boolean;
+}
 const textExtensions: Record<string, true> = {
 	".cjs": true,
 	".cts": true,
@@ -44,8 +50,8 @@ async function* walk(dir: string): AsyncGenerator<string> {
 	}
 }
 
-async function* packageFiles(): AsyncGenerator<string> {
-	const packagesDir = path.join(repoRoot, "packages");
+async function* packageFiles(targetRepoRoot: string): AsyncGenerator<string> {
+	const packagesDir = path.join(targetRepoRoot, "packages");
 	const entries = await fs.readdir(packagesDir, { withFileTypes: true });
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue;
@@ -62,31 +68,38 @@ async function* packageFiles(): AsyncGenerator<string> {
 	}
 }
 
-async function rewriteFile(filePath: string): Promise<boolean> {
+async function rewriteFile(filePath: string, dryRun: boolean): Promise<boolean> {
 	const original = await Bun.file(filePath).text();
 	const rewritten = rewriteZenPackageText(original);
 	if (rewritten === original) return false;
-	if (!isDryRun) await Bun.write(filePath, rewritten);
+	if (!dryRun) await Bun.write(filePath, rewritten);
 	return true;
 }
 
-async function main(): Promise<void> {
+export async function preparePublishWorktree(options: PreparePublishWorktreeOptions = {}): Promise<string[]> {
+	const targetRepoRoot = options.repoRoot ?? repoRoot;
+	const dryRun = options.dryRun ?? isDryRun;
 	const candidates: string[] = [];
 	for (const file of rootFiles) {
-		candidates.push(path.join(repoRoot, file));
+		candidates.push(path.join(targetRepoRoot, file));
 	}
-	for await (const file of packageFiles()) {
+	for await (const file of packageFiles(targetRepoRoot)) {
 		candidates.push(file);
 	}
 
 	const changed: string[] = [];
 	for (const file of candidates) {
-		if (await rewriteFile(file)) changed.push(path.relative(repoRoot, file));
+		if (await rewriteFile(file, dryRun)) changed.push(path.relative(targetRepoRoot, file));
 	}
+	if (!dryRun) await $`bun install --frozen-lockfile`.cwd(targetRepoRoot).quiet();
+	return changed;
+}
 
+async function main(): Promise<void> {
+	const changed = await preparePublishWorktree();
 	const action = isDryRun ? "Would rewrite" : "Rewrote";
 	console.log(`${action} ${changed.length} file(s) for Zen publish identity`);
 	for (const file of changed) console.log(`  ${file}`);
 }
 
-await main();
+if (import.meta.main) await main();
