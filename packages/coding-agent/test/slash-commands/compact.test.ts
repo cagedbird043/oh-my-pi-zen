@@ -39,7 +39,12 @@ describe("/compact dispatch (ACP)", () => {
 	});
 
 	it("threads each mode subcommand into compact()", async () => {
-		for (const mode of ["soft", "remote", "snapcompact"] as const satisfies readonly CompactMode[]) {
+		for (const mode of [
+			"soft",
+			"remote",
+			"snapcompact",
+			"unicode-snapcompact",
+		] as const satisfies readonly CompactMode[]) {
 			const h = acpRuntime();
 			await executeAcpBuiltinSlashCommand(`/compact ${mode}`, h.runtime);
 			expect(h.compact).toHaveBeenCalledWith(undefined, { mode });
@@ -69,7 +74,7 @@ describe("/compact dispatch (ACP)", () => {
 	it("advertises the mode subcommands and input hint to ACP clients", () => {
 		const advertised = ACP_BUILTIN_SLASH_COMMANDS.find(c => c.name === "compact");
 		expect(advertised).toBeDefined();
-		expect(advertised?.input?.hint).toBe("[soft|remote|snapcompact] [focus]");
+		expect(advertised?.input?.hint).toBe("[soft|remote|snapcompact|unicode-snapcompact] [focus]");
 	});
 });
 
