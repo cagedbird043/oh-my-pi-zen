@@ -179,20 +179,51 @@ export function resolveLoaderCandidates({
 // =========================================================================
 
 function parseReleaseVersion(version) {
-	const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
-	return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
+	const match =
+		/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(
+			version,
+		);
+	if (!match) return null;
+	return {
+		core: [Number(match[1]), Number(match[2]), Number(match[3])],
+		prerelease: match[4]?.split(".") ?? null,
+	};
+}
+
+function comparePrereleaseIdentifier(left, right) {
+	const leftNumeric = /^\d+$/.test(left);
+	const rightNumeric = /^\d+$/.test(right);
+	if (leftNumeric && rightNumeric) return Number(left) - Number(right);
+	if (leftNumeric) return -1;
+	if (rightNumeric) return 1;
+	return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareReleaseVersions(left, right) {
+	const leftVersion = parseReleaseVersion(left);
+	const rightVersion = parseReleaseVersion(right);
+	if (!leftVersion || !rightVersion) return null;
+	for (let index = 0; index < leftVersion.core.length; index++) {
+		const difference = leftVersion.core[index] - rightVersion.core[index];
+		if (difference !== 0) return difference;
+	}
+	if (leftVersion.prerelease === null) return rightVersion.prerelease === null ? 0 : 1;
+	if (rightVersion.prerelease === null) return -1;
+	const length = Math.max(leftVersion.prerelease.length, rightVersion.prerelease.length);
+	for (let index = 0; index < length; index++) {
+		const leftPart = leftVersion.prerelease[index];
+		const rightPart = rightVersion.prerelease[index];
+		if (leftPart === undefined) return -1;
+		if (rightPart === undefined) return 1;
+		const difference = comparePrereleaseIdentifier(leftPart, rightPart);
+		if (difference !== 0) return difference;
+	}
+	return 0;
 }
 
 function isOlderReleaseVersion(candidate, current) {
-	const candidateParts = parseReleaseVersion(candidate);
-	const currentParts = parseReleaseVersion(current);
-	if (!candidateParts || !currentParts) return false;
-	for (let index = 0; index < candidateParts.length; index++) {
-		if (candidateParts[index] !== currentParts[index]) {
-			return candidateParts[index] < currentParts[index];
-		}
-	}
-	return false;
+	const comparison = compareReleaseVersions(candidate, current);
+	return comparison !== null && comparison < 0;
 }
 
 /**

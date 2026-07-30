@@ -155,6 +155,23 @@ describe("windows native addon staging", () => {
 			await fs.rm(nativesDir, { recursive: true, force: true });
 		}
 	});
+
+	it("orders Zen prerelease cache directories within the same upstream version", async () => {
+		const nativesDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-natives-cache-zen-"));
+		try {
+			await fs.mkdir(path.join(nativesDir, "17.1.8-zen.1"));
+			await fs.mkdir(path.join(nativesDir, "17.1.8-zen.2"));
+			await fs.mkdir(path.join(nativesDir, "17.1.8-zen.3"));
+			await fs.mkdir(path.join(nativesDir, "17.1.8"));
+
+			const removed = cleanupStaleNativeVersions({ nativesDir, currentVersion: "17.1.8-zen.2" });
+
+			expect(removed.map(filePath => path.basename(filePath))).toEqual(["17.1.8-zen.1"]);
+			expect((await fs.readdir(nativesDir)).sort()).toEqual(["17.1.8", "17.1.8-zen.2", "17.1.8-zen.3"].sort());
+		} finally {
+			await fs.rm(nativesDir, { recursive: true, force: true });
+		}
+	});
 });
 
 describe("pi-natives version sentinel", () => {
