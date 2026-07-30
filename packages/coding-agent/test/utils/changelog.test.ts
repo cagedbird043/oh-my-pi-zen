@@ -29,6 +29,7 @@ import {
 } from "../../src/utils/changelog";
 
 const CURRENT_VERSION = "2.0.0";
+const RELEASE_BASE_VERSION = VERSION.replace(/[-+].*$/, "");
 const repoRoot = path.resolve(import.meta.dir, "..", "..", "..", "..");
 const cliEntry = path.join(repoRoot, "packages", "coding-agent", "src", "cli.ts");
 const packageDir = path.join(repoRoot, "packages", "coding-agent");
@@ -157,14 +158,18 @@ describe("parseChangelog", () => {
 	test("reads current source release data and filters versions newer than the previous release", async () => {
 		const entries = await parseChangelog(undefined);
 		const latest = entries[0];
-		const previous = entries[1];
+		const latestVersion = `${latest?.major}.${latest?.minor}.${latest?.patch}`;
+		const previousIndex = entries.findIndex(
+			entry => `${entry.major}.${entry.minor}.${entry.patch}` !== latestVersion,
+		);
+		const previous = entries[previousIndex];
 
-		expect(`${latest?.major}.${latest?.minor}.${latest?.patch}`).toBe(VERSION);
-		expect(latest?.content).toContain(`## [${VERSION}]`);
+		expect(latestVersion).toBe(RELEASE_BASE_VERSION);
+		expect(latest?.content).toContain(`## [${RELEASE_BASE_VERSION}`);
 		expect(previous).toBeDefined();
 
 		const previousVersion = `${previous?.major}.${previous?.minor}.${previous?.patch}`;
-		expect(getNewEntries(entries, previousVersion)).toEqual([latest]);
+		expect(getNewEntries(entries, previousVersion)).toEqual(entries.slice(0, previousIndex));
 	});
 });
 
