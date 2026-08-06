@@ -26,7 +26,6 @@ await run(["bun", "scripts/ci-release-publish.ts", ...nativeLeafArgs(process.arg
 	PI_CODING_AGENT_PUBLISH_BIN: "zen",
 	PI_NPM_PACKAGE_SCOPE: "@oh-my-pi-zen",
 	PI_REPOSITORY_URL: "git+https://github.com/cagedbird043/oh-my-pi-zen.git",
-	PI_NPM_NATIVE_LEAF_TAGS: "linux-x64,linux-arm64,darwin-arm64",
 	PI_NPM_DIST_TAG: "latest",
 	PI_ZEN_REWRITE_BEFORE_PACK: "true",
 });
