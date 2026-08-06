@@ -227,7 +227,7 @@ export class AnySearchProvider extends SearchProvider {
 		return authStorage.hasAuth("anysearch") || !!getEnvApiKey("anysearch");
 	}
 
-	isExplicitlyAvailable(_authStorage: AuthStorage): boolean {
+	override isExplicitlyAvailable(_authStorage: AuthStorage): boolean {
 		return true;
 	}
 

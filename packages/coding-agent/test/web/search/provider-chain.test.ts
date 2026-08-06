@@ -13,7 +13,13 @@ const authStorage = {
 	hasAuth(provider: string): boolean {
 		return provider === "jina" && Boolean(process.env.JINA_API_KEY);
 	},
-} as AuthStorage;
+	hasOAuth(): boolean {
+		return false;
+	},
+	getCredentialOrigin(): undefined {
+		return undefined;
+	},
+} as unknown as AuthStorage;
 const originalBraveApiKey = process.env.BRAVE_API_KEY;
 const originalJinaApiKey = process.env.JINA_API_KEY;
 
@@ -121,7 +127,7 @@ describe("resolveProviderChain", () => {
 		enableKeyBackedProviders();
 		process.env.ANYSEARCH_API_KEY = "test-anysearch-key";
 		try {
-			const providers = await resolveProviderChain(authStorage, "auto");
+			const providers = await resolveProviderChain(authStorage);
 			const anysearchIndex = providers.findIndex(p => p.id === "anysearch");
 			const duckduckgoIndex = providers.findIndex(p => p.id === "duckduckgo");
 			expect(anysearchIndex).toBeGreaterThanOrEqual(0);

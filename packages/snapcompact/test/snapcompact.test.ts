@@ -791,6 +791,14 @@ describe("serializeConversation", () => {
 	});
 
 	it("gives a thinking-only turn its own heading before the tool calls", () => {
+		const out = snapcompact.serializeConversation([
+			createAssistantMessage([
+				{ type: "thinking", thinking: "plan first" },
+				{ type: "toolCall", id: "c1", name: "read", arguments: { path: "a.ts" } },
+			]),
+		]);
+		expect(out).toBe('¶think:plan first\n\n¶call:read(path="a.ts")');
+	});
 	it("serializes Unicode event streams as compact dialogue turns without thinking or tools", () => {
 		const out = snapcompact.serializeUnicodeEventStream([
 			createUserMessage("# Goal\n\n请保留这个事实。\n\n```ts\nconst noisy = true;\n```"),
