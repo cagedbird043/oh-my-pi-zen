@@ -6939,7 +6939,7 @@ mod tests {
 		let source_info = SourceInfo::from("pi-natives:test");
 
 		time::timeout(
-			Duration::from_secs(15),
+			Duration::from_secs(5),
 			session.shell.run_string(command, &source_info, &params),
 		)
 		.await
