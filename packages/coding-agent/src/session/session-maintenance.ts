@@ -671,8 +671,7 @@ export class SessionMaintenance {
 				!customInstructions &&
 				!options?.internalGuidance;
 			const unicodeSnapcompact = effectiveSettings.strategy === "unicode-snapcompact";
-			const explicitSnapcompact =
-				compactMode?.name === "snapcompact" || compactMode?.name === "unicode-snapcompact";
+			const explicitSnapcompact = compactMode?.name === "snapcompact" || compactMode?.name === "unicode-snapcompact";
 			let snapcompactReady = wantsSnapcompact;
 			const snapcompactShapeSetting = this.#host.settings.get("snapcompact.shape");
 			const unicodeSnapcompactShapeSetting = this.#host.settings.get("snapcompact.unicodeShape");
@@ -712,7 +711,9 @@ export class SessionMaintenance {
 				snapcompactShape = unicodeSnapcompact
 					? snapcompact.resolveUnicodeSnapcompactShape(this.#model, unicodeSnapcompactShapeSetting)
 					: snapcompact.resolveShapeForText(probeText, this.#model, snapcompactShapeSetting);
-				const renderScan = unicodeSnapcompact ? undefined : snapcompact.scanRenderability(probeText, { shape: snapcompactShape });
+				const renderScan = unicodeSnapcompact
+					? undefined
+					: snapcompact.scanRenderability(probeText, { shape: snapcompactShape });
 				if (renderScan && !renderScan.isSafe) {
 					const percent = (renderScan.unrenderableRatio * 100).toFixed(1);
 					this.#host.emitNotice(
@@ -1738,7 +1739,8 @@ export class SessionMaintenance {
 		//   drift on denser content (e.g. dense JSON / tool-result blobs).
 		// - Summary template (intro + FILES section + grid notes) bills
 		//   ~2k tokens for typical sessions.
-		const resolvedShape = shape ?? snapcompact.resolveShape(this.#model, this.#host.settings.get("snapcompact.shape"));
+		const resolvedShape =
+			shape ?? snapcompact.resolveShape(this.#model, this.#host.settings.get("snapcompact.shape"));
 		const edgeCap = snapcompact.geometry(resolvedShape).capacity;
 		const textEdgeTokens = Math.ceil((2 * edgeCap * 1.15) / 4);
 		const SUMMARY_TEMPLATE_TOKENS = 2000;
@@ -2219,7 +2221,11 @@ export class SessionMaintenance {
 					: compactionSettings.strategy === "handoff" && reason !== "overflow" && !suppressHandoff
 						? "handoff"
 						: "context-full";
-		if ((action === "snapcompact" || action === "unicode-snapcompact") && this.#model && !this.#model.input.includes("image")) {
+		if (
+			(action === "snapcompact" || action === "unicode-snapcompact") &&
+			this.#model &&
+			!this.#model.input.includes("image")
+		) {
 			this.#host.emitNotice(
 				"warning",
 				`${action} needs a vision-capable active model (${this.#model.id} is text-only); using context-full auto-compaction instead.`,
@@ -2505,7 +2511,10 @@ export class SessionMaintenance {
 				);
 				const shapeSetting = this.#host.settings.get("snapcompact.shape");
 				const shape = unicodeSnapcompact
-					? snapcompact.resolveUnicodeSnapcompactShape(this.#model, this.#host.settings.get("snapcompact.unicodeShape"))
+					? snapcompact.resolveUnicodeSnapcompactShape(
+							this.#model,
+							this.#host.settings.get("snapcompact.unicodeShape"),
+						)
 					: snapcompact.resolveShapeForText(probeText, this.#model, shapeSetting);
 				const renderScan = unicodeSnapcompact ? undefined : snapcompact.scanRenderability(probeText, { shape });
 				if (renderScan && !renderScan.isSafe) {
