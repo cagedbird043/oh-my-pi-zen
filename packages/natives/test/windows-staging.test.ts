@@ -224,6 +224,7 @@ describe("windows native addon staging", () => {
 		const nativesDir = await fs.mkdtemp(path.join(os.tmpdir(), "omp-natives-cache-zen-"));
 		try {
 			await fs.mkdir(path.join(nativesDir, "17.1.8-zen.1"));
+			await fs.utimes(path.join(nativesDir, "17.1.8-zen.1"), new Date(0), new Date(0));
 			await fs.mkdir(path.join(nativesDir, "17.1.8-zen.2"));
 			await fs.mkdir(path.join(nativesDir, "17.1.8-zen.3"));
 			await fs.mkdir(path.join(nativesDir, "17.1.8"));
