@@ -15,7 +15,7 @@ export type CodexRateLimits = {
 export type CodexErrorInfo = {
 	message: string;
 	status: number;
-\t/** Machine-readable error code (`error`/`detail` code or type), when present. */
+	/** Machine-readable error code (`error`/`detail` code or type), when present. */
 	code?: string;
 	friendlyMessage?: string;
 	rateLimits?: CodexRateLimits;
@@ -45,9 +45,9 @@ export async function parseCodexError(response: Response): Promise<CodexErrorInf
 	let errorCode: string | undefined;
 
 	try {
-\t\tconst parsed = JSON.parse(raw) as { error?: unknown; detail?: unknown };
-\t\tconst envelope = parsed.error ?? parsed.detail;
-\t\tconst err = envelope && typeof envelope === "object" ? (envelope as Record<string, unknown>) : {};
+		const parsed = JSON.parse(raw) as { error?: unknown; detail?: unknown };
+		const envelope = parsed.error ?? parsed.detail;
+		const err = envelope && typeof envelope === "object" ? (envelope as Record<string, unknown>) : {};
 		const headers = response.headers;
 		const primary = {
 			used_percent: toNumber(headers.get("x-codex-primary-used-percent")),
