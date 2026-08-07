@@ -1,13 +1,13 @@
 import { createRequire } from "node:module";
 
-const VERSION_SENTINEL_RE = /^__piNativesV(\d+)_(\d+)_(\d+)$/;
+const VERSION_SENTINEL_RE = /^__piNativesV(\d+)_(\d+)_(\d+)(?:_zen_(\d+))?$/;
 
 /** Return the sole release version advertised by a native addon's exports. */
 export function nativeVersionFromExports(exports: readonly string[]): string | undefined {
 	const versions = exports
 		.map(name => VERSION_SENTINEL_RE.exec(name))
 		.filter((match): match is RegExpExecArray => match !== null)
-		.map(match => `${match[1]}.${match[2]}.${match[3]}`);
+		.map(match => `${match[1]}.${match[2]}.${match[3]}${match[4] ? `-zen.${match[4]}` : ""}`);
 	return versions.length === 1 ? versions[0] : undefined;
 }
 
