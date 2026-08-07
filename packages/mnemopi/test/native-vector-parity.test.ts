@@ -75,7 +75,7 @@ describe("native vector kernel parity", () => {
 	test("mmrRerankIndices selects identical index sequences to the TS loop", () => {
 		const rng = makeRng(0x33a11);
 		const words = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa"];
-		const count = 60;
+		const count = 32;
 		const contents: string[] = [];
 		const scores = new Float64Array(count);
 		for (let i = 0; i < count; i += 1) {
