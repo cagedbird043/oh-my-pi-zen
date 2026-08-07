@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { LRUCache } from "../src/lru";
 
 describe("LRUCache", () => {
@@ -86,15 +86,20 @@ describe("LRUCache", () => {
 		});
 	});
 
-	test("matches updateAgeOnGet", async () => {
-		const cache = new LRUCache<string, number>({ max: 2, ttl: 30, updateAgeOnGet: true });
-		cache.set("a", 1);
-		// Integration against the cache's performance-based clock requires real elapsed time.
-		await Bun.sleep(20);
-		expect(cache.get("a")).toBe(1);
-		await Bun.sleep(20);
-		expect(cache.has("a")).toBe(true);
-		await Bun.sleep(20);
-		expect(cache.has("a")).toBe(false);
+	test("matches updateAgeOnGet", () => {
+		let now = 0;
+		const nowSpy = spyOn(performance, "now").mockImplementation(() => now);
+		try {
+			const cache = new LRUCache<string, number>({ max: 2, ttl: 30, updateAgeOnGet: true });
+			cache.set("a", 1);
+			now = 20;
+			expect(cache.get("a")).toBe(1);
+			now = 40;
+			expect(cache.has("a")).toBe(true);
+			now = 51;
+			expect(cache.has("a")).toBe(false);
+		} finally {
+			nowSpy.mockRestore();
+		}
 	});
 });
