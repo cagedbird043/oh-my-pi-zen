@@ -30,7 +30,7 @@ name: Warm bazel disk cache
 
 on:
    push:
-      branches: [main]
+      branches: [main, zen/main]
       paths:
          - "crates/**"
          - "bazel/**"
