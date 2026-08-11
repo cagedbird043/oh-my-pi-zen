@@ -435,6 +435,12 @@
 - Fixed an issue where GPT-5.6 Codex Responses-Lite requests failed with an HTTP 400 error due to invalid `tool_choice` parameters after tools were rewritten, by automatically downgrading forced hosted choices to `tool_choice: "auto"` while preserving explicit tool-use constraints.
 - Fixed Cursor streams prematurely reporting success before late CONNECT or gRPC terminal failures were observed, and resolved issues rejecting transport ends without a `turnEnded` signal.
 
+## [17.0.1-zen.1] - 2026-07-17
+
+### Fixed
+
+- Automatically invalidates and rotates OAuth credentials when an upstream provider reports an invalidated OAuth or authentication token, including Codex's `Your authentication token has been invalidated` response.
+
 ## [17.0.1] - 2026-07-16
 
 ### Fixed
@@ -461,6 +467,13 @@
 
 - Fixed Cursor TLS connection resets causing process-fatal uncaught exceptions, allowing the active turn to fail or retry gracefully without terminating the session.
 - Fixed Amazon Bedrock stream error handling to correctly handle non-Error values that cannot be serialized by JSON.stringify.
+
+## [16.5.2-zen.1] - 2026-07-15
+
+### Fixed
+
+- Fixed Codex `deactivated_workspace` responses not triggering sibling credential rotation, including the backend's `detail.code` error envelope.
+- Fixed OAuth credential resolution returning "No API key found" when every plan-eligible OpenAI Codex account was rate-limit blocked and the only unblocked account failed the model's plan gate: resolution now runs a last-resort ladder that first yields a plan-fitting account regardless of usage blocks (so callers get real usage-limit retry semantics), then tries every account with the plan filter dropped before reporting no credential
 
 ## [16.5.2] - 2026-07-14
 
@@ -517,22 +530,32 @@
 
 - Removed automatic /interactions chaining for follow-up turns in Google provider calls, along with the useInteractionsApi, storeInteraction, and previousInteractionId stream options.
 
-## [16.4.6] - 2026-07-12
+## [16.4.6-zen.1] - 2026-07-12
 
 ### Added
 
 - Added asynchronous `invalidateUsageCache` method to clear cached usage reports
 - Added support for cross-service usage cache invalidation between AuthStorage and AuthBroker
 
+## [16.4.6] - 2026-07-12
+
 ### Fixed
 
-- Fixed OAuth credential resolution returning "No API key found" when every plan-eligible OpenAI Codex account was rate-limit blocked and the only unblocked account failed the model's plan gate: resolution now runs a last-resort ladder that first yields a plan-fitting account regardless of usage blocks (so callers get real usage-limit retry semantics), then tries every account with the plan filter dropped before reporting no credential
+- Fixed GPT-5.6 Sol/Luna OAuth routing rejecting healthy ChatGPT K-12 accounts when a paid sibling became exhausted, which could incorrectly surface a missing-credential error despite valid Codex logins.
+- Fixed Codex OAuth multi-account routing not switching away from credentials rejected because the personal access token owner is not an active member of the selected workspace; this account-specific `403` now follows the normal refresh-then-sibling rotation path while unrelated `403` responses remain non-rotatable.
 
 ## [16.4.5] - 2026-07-11
 
 ### Fixed
 
 - Fixed an issue in GLM tool calling where missing or malformed argument closers (such as `<arg_value>` mistyped as `</arg_key>`) caused subsequent arguments to be swallowed or merged into a single field, affecting both in-band and native tool calling.
+
+## [16.4.3-zen.1] - 2026-07-11
+
+### Fixed
+
+- Fixed GPT-5.6 Sol/Luna OAuth routing rejecting healthy ChatGPT K-12 accounts when a paid sibling became exhausted, which could incorrectly surface a missing-credential error despite valid Codex logins.
+- Fixed Codex OAuth multi-account routing not switching away from credentials rejected because the personal access token owner is not an active member of the selected workspace; this account-specific `403` now follows the normal refresh-then-sibling rotation path while unrelated `403` responses remain non-rotatable.
 
 ## [16.4.3] - 2026-07-11
 
@@ -578,6 +601,16 @@
 - Fixed xai-oauth/grok-4.5 Responses requests to omit the unsupported reasoning.summary field while preserving the reasoning.effort payload.
 - Fixed Codex OAuth credential selection to re-check blocked accounts during ranking and clear stale usage-limit blocks once live usage indicates recovery.
 - Fixed sequential-cutoff reasoning summaries duplicating section headers across Codex reasoning items by tracking the cumulative summary response-globally, so replayed sections and replay-only items no longer re-emit text earlier thinking blocks already streamed.
+
+## [16.3.15-zen.1] - 2026-07-10
+
+### Added
+
+- Added `anysearch` registry provider definition and interactive credentials login support.
+
+### Fixed
+
+- Fixed plain-text 5xx provider status messages (including relay `520` HTML pages) being left as non-retryable numeric statuses instead of transient retryable errors.
 
 ## [16.3.15] - 2026-07-09
 
@@ -675,6 +708,16 @@
 - Fixed parallel OpenAI-compatible tool-call streaming to prevent argument data from bleeding across concurrent commands when identifiers are missing.
 - Fixed Anthropic Claude reasoning and thinking replay handling. Same-model replays now drop unsigned prior reasoning blocks to prevent reasoning-extraction refusals, while cross-model replays (including Bedrock cross-region profiles) correctly demote reasoning without emitting raw thinking tags or causing text-flattening formatting issues.
 - Fixed custom OpenAI-compatible relays serving standard OpenAI model IDs to be correctly classified as OpenAI-family targets for fast mode.
+
+## [16.3.6-zen.3] - 2026-07-04
+
+### Added
+
+- Added `anysearch` registry provider definition and interactive credentials login support.
+
+### Fixed
+
+- Fixed `subscription quota insufficient` / `额度不足` provider errors being classified as generic 403 failures instead of usage-limit errors, so model-role fallback chains can advance to the next provider.
 
 ## [16.3.6] - 2026-07-04
 
