@@ -38,6 +38,8 @@ This checkout is maintained as **Oh My Pi Zen** on `zen/main`, but source packag
 
 When refreshing Zen for a new upstream release, rebuild the downstream stack instead of merging upstream into the old `zen/main`. An upstream release tag is the only permitted sync baseline; never sync or rebase Zen to an arbitrary `upstream/main` commit.
 
+Any task that updates, upgrades, rebases, refreshes, or releases Zen against upstream **MUST read and follow `.omp/skills/zen-upstream-sync/SKILL.md` before changing refs or files**. The skill defines the complete rebuild, verification, integration, publication, and cleanup workflow; the safety invariants below remain mandatory even if the skill cannot be loaded.
+
 1. Before rebuilding, preserve the exact current `zen/main` head as a permanent source ref. If an immutable `zen/v<version>` release tag already points to that head, it is the archive; otherwise create and push `backup/<current-zen-version>` at that SHA, and never force-push or delete it. Do not rename or delete `zen/main` during preparation.
 2. Fetch upstream and start a clean sync branch/worktree from the latest applicable upstream release tag. Do not use a newer `upstream/main` commit, even when it contains fixes Zen may eventually want.
 3. Replay only live downstream patches in order: Zen release identity/workflow, still-open upstream PR patches, Zen-only runtime features, Unicode Snapcompact, docs/changelog wording, generated-file refresh, then release bump last.
