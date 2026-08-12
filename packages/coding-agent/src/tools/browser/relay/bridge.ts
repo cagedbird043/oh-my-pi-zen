@@ -84,6 +84,8 @@ class TabState {
 	attached = false;
 	/** Set when attach failed or the user cancelled the debugger; cleared on navigation. */
 	banned = false;
+	/** Chrome's refusal for the last failed attach; drives the tool-facing error. */
+	banReason: string | undefined;
 	/** Whether targets for this tab were announced to discovering connections. */
 	announced = false;
 	attaching: Promise<boolean> | null = null;
@@ -195,6 +197,15 @@ export class RelayBridge {
 			"WebKit-Version": "",
 			webSocketDebuggerUrl: wsUrl,
 		};
+	}
+
+	/** Tabs `chrome.debugger` refused, so callers can explain an empty target list. */
+	attachFailures(): Array<{ url: string; reason: string }> {
+		const out: Array<{ url: string; reason: string }> = [];
+		for (const tab of this.#tabs.values()) {
+			if (tab.banReason) out.push({ url: tab.url, reason: tab.banReason });
+		}
+		return out;
 	}
 
 	/** Payload for `GET /json/list` (debugging aid; per-target endpoints are not served). */
@@ -533,7 +544,8 @@ export class RelayBridge {
 					return;
 				}
 				if (!(await this.#ensureAttached(tab))) {
-					this.#replyError(conn, msg, `Cannot attach to tab ${tab.tabId} (${tab.url})`);
+					const reason = tab.banReason ? `: ${tab.banReason}` : "";
+					this.#replyError(conn, msg, `Cannot attach to tab ${tab.tabId} (${tab.url})${reason}`);
 					return;
 				}
 				const sessionId = this.#mintSession(conn, parsed.kind, tab.tabId);
@@ -660,6 +672,7 @@ export class RelayBridge {
 		tab.attached = false;
 		tab.attaching = null;
 		tab.banned = true;
+		tab.banReason = reason;
 		// The user dismissed the debugger infobar (or the attach was torn
 		// down): release the tab's omp-group membership too.
 		this.#syncTabGrouping(tab);
@@ -680,7 +693,10 @@ export class RelayBridge {
 			tab = new TabState(snap.tabId, snap);
 			this.#tabs.set(snap.tabId, tab);
 		} else {
-			if (tab.url !== snap.url) tab.banned = false;
+			if (tab.url !== snap.url) {
+				tab.banned = false;
+				tab.banReason = undefined;
+			}
 			// The user dragging a tab out of the omp group is an opt-out; the
 			// relay never fights the user over grouping.
 			if (tab.grouped && tab.ompGroupId !== undefined && snap.groupId !== tab.ompGroupId) {
@@ -872,12 +888,10 @@ export class RelayBridge {
 				return true;
 			})
 			.catch(err => {
-				this.#log("attach failed", {
-					tabId: tab.tabId,
-					url: tab.url,
-					error: err instanceof Error ? err.message : String(err),
-				});
+				const reason = err instanceof Error ? err.message : String(err);
+				this.#log("attach failed", { tabId: tab.tabId, url: tab.url, error: reason });
 				tab.banned = true;
+				tab.banReason = reason;
 				return false;
 			})
 			.finally(() => {
