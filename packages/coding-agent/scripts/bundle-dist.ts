@@ -6,6 +6,7 @@ import { isEnoent } from "@oh-my-pi/pi-utils";
 import { buildDocsIndexPayload } from "./generate-docs-index";
 
 const packageDir = path.join(import.meta.dir, "..");
+const rootPackagePath = path.join(packageDir, "../..", "package.json");
 const outDir = path.join(packageDir, "dist");
 const cliPath = path.join(outDir, "cli.js");
 const shebang = "#!/usr/bin/env bun\n";
@@ -25,12 +26,17 @@ const ALWAYS_EXTERNAL = [
 
 // Heavy, lazily-used third-party leaf deps. Each is a declared `dependency`, so the
 // published package resolves it from node_modules at runtime; bundling only embeds a
-// redundant copy that bloats dist/cli.js. NEVER add a patched dependency here — the
-// bundle is where a root `patchedDependencies` patch is baked in, so an externalized
-// import would load the unpatched npm package in users' installs (currently
-// @ark/schema is patched, so it — and arktype, which pulls @ark/schema — stay
-// bundled).
-const RUNTIME_EXTERNAL = ["puppeteer-core", "@babel/parser"];
+// redundant copy that bloats dist/cli.js.
+const RUNTIME_EXTERNAL_CANDIDATES = ["puppeteer-core", "@babel/parser"];
+
+export function runtimeExternalPackages(
+	patchedDependencies: Readonly<Record<string, string>>,
+	candidates: readonly string[] = RUNTIME_EXTERNAL_CANDIDATES,
+): string[] {
+	return candidates.filter(
+		candidate => !Object.keys(patchedDependencies).some(key => key.startsWith(`${candidate}@`)),
+	);
+}
 
 async function runCommand(command: string[]): Promise<void> {
 	const proc = Bun.spawn(command, {
@@ -89,11 +95,14 @@ async function main(): Promise<void> {
 		// Build in-process: the docs embed payload is far larger than Linux's
 		// 128KiB per-argv-string cap, so it can never be passed as a CLI
 		// `--define` (posix_spawn fails with E2BIG).
+		const rootPackage = (await Bun.file(rootPackagePath).json()) as {
+			patchedDependencies?: Record<string, string>;
+		};
 		const output = await Bun.build({
 			entrypoints: [path.join(packageDir, "src/cli.ts")],
 			outdir: outDir,
 			target: "bun",
-			external: [...ALWAYS_EXTERNAL, ...RUNTIME_EXTERNAL],
+			external: [...ALWAYS_EXTERNAL, ...runtimeExternalPackages(rootPackage.patchedDependencies ?? {})],
 			define: {
 				"process.env.PI_BUNDLED": JSON.stringify("true"),
 				"process.env.PI_DOCS_EMBED": JSON.stringify((await buildDocsIndexPayload()).payload),
@@ -120,4 +129,4 @@ async function main(): Promise<void> {
 	);
 }
 
-await main();
+if (import.meta.main) await main();

@@ -31,6 +31,9 @@
 ### Added
 
 - Added `externalThinking` setting for private scratchpad reasoning via the new `think` tool
+### Fixed
+
+- Fixed Browser Relay page commands hanging in npm installs because the published CLI bundle externalized `puppeteer-core` and loaded an unpatched registry copy at runtime; the bundle now embeds the patched Puppeteer implementation used by source and binary builds.
 
 ## [17.2.13] - 2026-08-11
 
