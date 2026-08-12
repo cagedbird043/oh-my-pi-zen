@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ## [17.2.15] - 2026-08-12
+### Fixed
+
+- Browser Relay now surfaces Chrome's actual `chrome.debugger` refusal (e.g. `Cannot access a chrome-extension:// URL of different extension`) instead of only reporting `No page targets available`, so a page-injecting extension blocking attach is diagnosable from the tool error.
+
+## [17.2.13-zen.2] - 2026-08-12
 
 ### Added
 

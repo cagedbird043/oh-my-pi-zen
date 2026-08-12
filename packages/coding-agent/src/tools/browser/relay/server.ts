@@ -88,6 +88,9 @@ export function startRelayServer(opts: RelayServerOptions): RelayServer {
 			if (path === "/json" || path === "/json/list") {
 				return Response.json(bridge.listTargets());
 			}
+			if (path === "/json/omp-attach-failures") {
+				return Response.json(bridge.attachFailures());
+			}
 			return new Response("Not found", { status: 404 });
 		},
 		websocket: {

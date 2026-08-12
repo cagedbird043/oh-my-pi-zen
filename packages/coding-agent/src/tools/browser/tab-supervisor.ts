@@ -712,10 +712,30 @@ async function buildInitPayload(browser: PuppeteerBrowserHandle, opts: AcquireTa
 	// target may be backgrounded, so retain activation for target-correct pixels.
 	const userDriven = browser.kind.kind === "connected" || browser.kind.kind === "relay";
 	const activateForScreenshot = !userDriven || !shouldPreserveConnectedBrowserFocus(opts.target);
-	const page = await pickElectronTarget(browser.browser, {
-		matcher: opts.target,
-		preferVisible: !activateForScreenshot,
-	});
+	let page: Page;
+	try {
+		page = await pickElectronTarget(browser.browser, {
+			matcher: opts.target,
+			preferVisible: !activateForScreenshot,
+		});
+	} catch (err) {
+		if (browser.kind.kind !== "relay" || !(err instanceof ToolError)) throw err;
+		// The relay hides tabs `chrome.debugger` refused, so puppeteer only sees
+		// an empty target list; recover Chrome's refusal behind it.
+		let failures: Array<{ url: string; reason: string }> = [];
+		try {
+			const res = await fetch(`${browser.cdpUrl}/json/omp-attach-failures`, { signal: AbortSignal.timeout(1_500) });
+			if (res.ok) failures = (await res.json()) as Array<{ url: string; reason: string }>;
+			else await res.body?.cancel();
+		} catch {
+			throw err;
+		}
+		if (failures.length === 0) throw err;
+		const detail = failures.map(failure => `- ${failure.url}: ${failure.reason}`).join("\n");
+		throw new ToolError(
+			`${err.message}\nChrome refused to attach the debugger to these tabs:\n${detail}\nAnother extension injecting frames into the page blocks \`chrome.debugger\`; disable it, or relaunch Chrome with --extensions-on-extension-urls.`,
+		);
+	}
 	const targetId = await targetIdForPage(page);
 	return {
 		mode: "attach",
