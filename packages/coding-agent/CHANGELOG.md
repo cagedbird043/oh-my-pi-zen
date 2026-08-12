@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [17.2.13-zen.2] - 2026-08-12
+
 ### Fixed
 
 - Fixed Browser Relay page commands hanging in npm installs because the published CLI bundle externalized `puppeteer-core` and loaded an unpatched registry copy at runtime; the bundle now embeds the patched Puppeteer implementation used by source and binary builds.
