@@ -45,6 +45,11 @@
 - Fixed WSL2 startup hanging forever when the Windows interop pipe is wedged: the WSL host-home discovery probes (`cmd.exe`, `wslpath`) now run under a 500ms hard timeout and fall back to the Linux `$HOME`/`~/.omp` candidates ([#8402](https://github.com/can1357/oh-my-pi/issues/8402)).
 
 ## [17.2.15] - 2026-08-12
+### Fixed
+
+- Browser Relay now surfaces Chrome's actual `chrome.debugger` refusal (e.g. `Cannot access a chrome-extension:// URL of different extension`) instead of only reporting `No page targets available`, so a page-injecting extension blocking attach is diagnosable from the tool error.
+
+## [17.2.13-zen.2] - 2026-08-12
 
 ### Added
 

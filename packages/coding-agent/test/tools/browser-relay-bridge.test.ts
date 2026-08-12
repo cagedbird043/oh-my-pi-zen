@@ -40,6 +40,11 @@ class FakeCdpSocket implements RelaySocket {
 		const result = msg && "result" in msg && msg.result && typeof msg.result === "object" ? msg.result : undefined;
 		return result && "sessionId" in result && typeof result.sessionId === "string" ? result.sessionId : undefined;
 	}
+	errorFor(commandId: number): string | undefined {
+		const msg = this.messages.find(m => m.id === commandId);
+		const error = msg && "error" in msg && msg.error && typeof msg.error === "object" ? msg.error : undefined;
+		return error && "message" in error && typeof error.message === "string" ? error.message : undefined;
+	}
 }
 
 function tab(overrides: Partial<TabSnapshot> & { tabId: number }): TabSnapshot {
@@ -73,6 +78,14 @@ function ack(bridge: RelayBridge, socket: FakeExtSocket, op: RelayRpcRequest["op
 	for (const rpc of socket.pending(op)) {
 		socket.markAcked(rpc.id);
 		bridge.extMessage(socket, JSON.stringify({ t: "rpcResult", id: rpc.id, ok: true, result }));
+	}
+}
+
+/** Reject every unanswered extension RPC of `op` with `error`. */
+function nack(bridge: RelayBridge, socket: FakeExtSocket, op: RelayRpcRequest["op"], error: string): void {
+	for (const rpc of socket.pending(op)) {
+		socket.markAcked(rpc.id);
+		bridge.extMessage(socket, JSON.stringify({ t: "rpcResult", id: rpc.id, ok: false, error }));
 	}
 }
 
@@ -278,5 +291,44 @@ describe("RelayBridge tab grouping", () => {
 		const groups = ext2.rpcs("group");
 		expect(groups).toHaveLength(1);
 		expect(groups[0]!.tabIds).toEqual([1]);
+	});
+});
+
+describe("RelayBridge attach refusals", () => {
+	const CHROME_REFUSAL = "Cannot access a chrome-extension:// URL of different extension";
+
+	it("carries Chrome's refusal into the attachToTarget error instead of a bare failure", async () => {
+		const bridge = new RelayBridge({});
+		const ext = new FakeExtSocket();
+		connect(bridge, ext, [tab({ tabId: 1 })]);
+		const cdp = new FakeCdpSocket();
+		const connId = bridge.cdpConnected(cdp);
+		const attachId = ++msgSeq;
+		bridge.cdpMessage(
+			connId,
+			JSON.stringify({ id: attachId, method: "Target.attachToTarget", params: { targetId: "PAGE1" } }),
+		);
+		nack(bridge, ext, "attach", CHROME_REFUSAL);
+		await flush();
+		expect(cdp.sessionFor(attachId)).toBeUndefined();
+		expect(cdp.errorFor(attachId)).toContain(CHROME_REFUSAL);
+	});
+
+	it("reports refused tabs so an empty target list can be explained, and forgets them on navigation", async () => {
+		const bridge = new RelayBridge({});
+		const ext = new FakeExtSocket();
+		connect(bridge, ext, [tab({ tabId: 1, url: "https://example.com/" })]);
+		const cdp = new FakeCdpSocket();
+		const connId = bridge.cdpConnected(cdp);
+		bridge.cdpMessage(
+			connId,
+			JSON.stringify({ id: ++msgSeq, method: "Target.attachToTarget", params: { targetId: "PAGE1" } }),
+		);
+		nack(bridge, ext, "attach", CHROME_REFUSAL);
+		await flush();
+		expect(bridge.attachFailures()).toEqual([{ url: "https://example.com/", reason: CHROME_REFUSAL }]);
+		// The refusal is per-document: a navigation must not keep the tab banned.
+		bridge.extMessage(ext, JSON.stringify({ t: "tabUpdated", tab: tab({ tabId: 1, url: "https://example.org/" }) }));
+		expect(bridge.attachFailures()).toEqual([]);
 	});
 });
