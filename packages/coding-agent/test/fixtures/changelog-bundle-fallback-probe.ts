@@ -17,4 +17,6 @@ if (version !== RELEASE_BASE_VERSION || !latest?.content.startsWith(`## [${RELEA
 	);
 }
 
-process.stdout.write(JSON.stringify({ version, entries: entries.length }));
+const output = JSON.stringify({ version, entries: entries.length });
+if (Bun.env.OMP_TEST_OUTPUT) await Bun.write(Bun.env.OMP_TEST_OUTPUT, output);
+else process.stdout.write(output);

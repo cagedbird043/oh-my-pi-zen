@@ -1,8 +1,10 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 import { CURSOR_MARKER } from "@oh-my-pi/pi-tui";
 import { setKittyProtocolActive } from "@oh-my-pi/pi-tui/keys";
-import { $ } from "bun";
 import { getDefaultPasteImageKeys } from "../../../src/config/keybindings";
 import {
 	CustomEditor,
@@ -56,17 +58,21 @@ function feedGaps(editor: CustomEditor, gaps: number[]): void {
 
 async function decorateInFreshProcess(text: string, imageLinks?: readonly string[]): Promise<string> {
 	const customEditorUrl = new URL("../../../src/modes/components/custom-editor.ts", import.meta.url).href;
+	const outputPath = path.join(os.tmpdir(), `omp-custom-editor-${Bun.randomUUIDv7()}.txt`);
 	const script = `
 import { CustomEditor } from ${JSON.stringify(customEditorUrl)};
 const editor = new CustomEditor({});
 editor.imageLinks = ${JSON.stringify(imageLinks)};
-process.stdout.write(editor.decorateText(${JSON.stringify(text)}));
+await Bun.write(${JSON.stringify(outputPath)}, editor.decorateText(${JSON.stringify(text)}));
 `;
-	const child = await $`bun -e ${script}`.quiet().nothrow();
-	const stdout = child.stdout.toString();
-	const stderr = child.stderr.toString();
-	if (child.exitCode !== 0) throw new Error(stderr || stdout || `decorate subprocess exited with ${child.exitCode}`);
-	return stdout;
+	try {
+		const child = Bun.spawnSync([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+		const stderr = child.stderr.toString();
+		if (child.exitCode !== 0) throw new Error(stderr || `decorate subprocess exited with ${child.exitCode}`);
+		return await Bun.file(outputPath).text();
+	} finally {
+		await fs.rm(outputPath, { force: true });
+	}
 }
 
 describe("CustomEditor placeholder decoration", () => {

@@ -392,4 +392,3 @@ describe("openai-codex error parsing", () => {
 		expect(error.info.raw).toBe('{"detail":{"code":"deactivated_workspace"}}');
 	});
 });
-

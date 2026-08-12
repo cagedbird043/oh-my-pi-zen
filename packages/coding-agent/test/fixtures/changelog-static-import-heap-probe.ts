@@ -34,4 +34,6 @@ for (let nodeOffset = 0; nodeOffset < heap.nodes.length; nodeOffset += nodeField
 	}
 }
 
-process.stdout.write(JSON.stringify({ retainedChangelogStrings }));
+const output = JSON.stringify({ retainedChangelogStrings });
+if (Bun.env.OMP_TEST_OUTPUT) await Bun.write(Bun.env.OMP_TEST_OUTPUT, output);
+else process.stdout.write(output);

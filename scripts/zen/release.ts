@@ -110,7 +110,16 @@ async function nextZenVersion(): Promise<string> {
 }
 
 export async function latestZenReleaseTag(repoRoot: string): Promise<string | undefined> {
-	return (await git(["tag", "--list", "zen/v*-zen.*", "--sort=-v:refname"], repoRoot).text())
+	const result = Bun.spawnSync(["git", "tag", "--list", "zen/v*-zen.*", "--sort=-v:refname"], {
+		cwd: repoRoot,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	if (result.exitCode !== 0) {
+		throw new Error(`git tag --list failed in ${repoRoot}: ${result.stderr.toString().trim()}`);
+	}
+	return result.stdout
+		.toString()
 		.split(/\r?\n/)
 		.map(line => line.trim())
 		.find(Boolean);

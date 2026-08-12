@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import * as path from "node:path";
-import { $, Glob } from "bun";
+import { Glob } from "bun";
 
 const CHANGELOG_GLOB = "packages/*/CHANGELOG.md";
 const ORDERED_SECTION_TITLES = ["Breaking Changes", "Added", "Changed", "Fixed", "Removed"] as const;
@@ -706,10 +706,14 @@ export function collectPromotableAddedItemLines(diffText: string): Map<string, S
 }
 
 async function git(args: readonly string[], cwd: string): Promise<string> {
-	const result = await $`git -c core.fsmonitor=false -c core.untrackedCache=false -c fetch.pruneTags=false ${args}`
-		.cwd(cwd)
-		.quiet();
-	return result.text();
+	const result = Bun.spawnSync(
+		["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "fetch.pruneTags=false", ...args],
+		{ cwd, stdout: "pipe", stderr: "pipe" },
+	);
+	if (result.exitCode !== 0) {
+		throw new Error(`git ${args.join(" ")} failed in ${cwd}: ${result.stderr.toString().trim()}`);
+	}
+	return result.stdout.toString();
 }
 
 export async function resolveRepoRoot(repoRoot: string | undefined): Promise<string> {
@@ -771,12 +775,12 @@ async function pinChangelogBaseline(repoRoot: string): Promise<string> {
 }
 
 async function gitMaybe(args: readonly string[], cwd: string): Promise<string | undefined> {
-	const result = await $`git -c core.fsmonitor=false -c core.untrackedCache=false -c fetch.pruneTags=false ${args}`
-		.cwd(cwd)
-		.quiet()
-		.nothrow();
+	const result = Bun.spawnSync(
+		["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "fetch.pruneTags=false", ...args],
+		{ cwd, stdout: "pipe", stderr: "pipe" },
+	);
 	if (result.exitCode !== 0) return undefined;
-	return result.text();
+	return result.stdout.toString();
 }
 
 async function collectHistoricalReleaseRecovery(
@@ -785,6 +789,7 @@ async function collectHistoricalReleaseRecovery(
 	tags?: readonly string[],
 ): Promise<Map<string, HistoricalReleaseRecovery>> {
 	const selectedTags = tags ?? (await recoveryTags(repoRoot));
+	const recoveryByPath = new Map<string, HistoricalReleaseRecovery>();
 
 	for (const tag of selectedTags) {
 		for (const changelogPath of paths) {
@@ -841,6 +846,7 @@ export async function runChangelogFixer(options: RunChangelogFixerOptions = {}):
 	const historicalRecoveryByPath = options.recover
 		? await collectHistoricalReleaseRecovery(repoRoot, paths, options.recoveryTags)
 		: new Map<string, HistoricalReleaseRecovery>();
+	const changedFiles: ChangedChangelogSummary[] = [];
 
 	for (const changelogPath of paths) {
 		const absolutePath = path.join(repoRoot, changelogPath);

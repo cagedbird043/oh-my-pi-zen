@@ -21,19 +21,21 @@ const heapProbePath = path.resolve(import.meta.dir, "..", "fixtures", "changelog
 const bundleProbePath = path.resolve(import.meta.dir, "..", "fixtures", "changelog-bundle-fallback-probe.ts");
 const utilsStubPath = path.resolve(import.meta.dir, "..", "fixtures", "changelog-utils-stub.ts");
 
-async function runProbe(command: string[], cwd?: string): Promise<BundleProbeResult> {
-	const proc = Bun.spawn(command, {
-		cwd,
-		stderr: "pipe",
-		stdout: "pipe",
-	});
-	const [stdout, stderr, exitCode] = await Promise.all([
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-		proc.exited,
-	]);
-	expect(exitCode, stderr).toBe(0);
-	return JSON.parse(stdout) as BundleProbeResult;
+async function runProbe<T>(command: string[], cwd?: string): Promise<T> {
+	const outputPath = path.join(os.tmpdir(), `omp-changelog-probe-${Bun.randomUUIDv7()}.json`);
+	try {
+		const proc = Bun.spawnSync(command, {
+			cwd,
+			env: { ...process.env, OMP_TEST_OUTPUT: outputPath },
+			stderr: "pipe",
+			stdout: "pipe",
+		});
+		const stderr = proc.stderr.toString();
+		expect(proc.exitCode, stderr).toBe(0);
+		return JSON.parse(await fs.readFile(outputPath, "utf8")) as T;
+	} finally {
+		await fs.rm(outputPath, { force: true });
+	}
 }
 
 /**
@@ -75,18 +77,8 @@ describe("bundled changelog asset path resolution", () => {
 
 describe("changelog static import resources", () => {
 	test("does not retain the multi-megabyte changelog text before parsing", async () => {
-		const proc = Bun.spawn([process.execPath, heapProbePath], {
-			stderr: "pipe",
-			stdout: "pipe",
-		});
-		const [stdout, stderr, exitCode] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
-			proc.exited,
-		]);
-
-		expect(exitCode, stderr).toBe(0);
-		expect(JSON.parse(stdout) as HeapProbeResult).toEqual({ retainedChangelogStrings: 0 });
+		const result = await runProbe<HeapProbeResult>([process.execPath, heapProbePath]);
+		expect(result).toEqual({ retainedChangelogStrings: 0 });
 	}, 30_000);
 
 	test("reads the emitted changelog asset when run outside the bundle directory", async () => {
@@ -96,7 +88,11 @@ describe("changelog static import resources", () => {
 			const unrelatedCwd = path.join(tempDir, "cwd");
 			const missingPackageChangelogPath = path.join(tempDir, "missing-package", "CHANGELOG.md");
 			await fs.mkdir(unrelatedCwd);
-			const sourceResult = await runProbe([process.execPath, bundleProbePath, missingPackageChangelogPath]);
+			const sourceResult = await runProbe<BundleProbeResult>([
+				process.execPath,
+				bundleProbePath,
+				missingPackageChangelogPath,
+			]);
 
 			const buildOutput = await Bun.build({
 				entrypoints: [bundleProbePath],
@@ -111,11 +107,10 @@ describe("changelog static import resources", () => {
 			expect(outputs.some(output => output.endsWith(".md"))).toBe(true);
 			const bundleFilename = outputs.find(output => output.endsWith(".js"));
 			if (!bundleFilename) throw new Error("Changelog bundle build did not emit an entrypoint");
-			const result = await runProbe(
+			const result = await runProbe<BundleProbeResult>(
 				[process.execPath, path.join(bundleDir, bundleFilename), missingPackageChangelogPath],
 				unrelatedCwd,
 			);
-
 			expect(result.version).toBe(RELEASE_BASE_VERSION);
 			expect(result.entries).toBe(sourceResult.entries);
 		} finally {
@@ -130,7 +125,11 @@ describe("changelog static import resources", () => {
 			const unrelatedCwd = path.join(tempDir, "cwd");
 			const missingPackageChangelogPath = path.join(tempDir, "missing-package", "CHANGELOG.md");
 			await fs.mkdir(unrelatedCwd);
-			const sourceResult = await runProbe([process.execPath, bundleProbePath, missingPackageChangelogPath]);
+			const sourceResult = await runProbe<BundleProbeResult>([
+				process.execPath,
+				bundleProbePath,
+				missingPackageChangelogPath,
+			]);
 
 			const buildOutput = await Bun.build({
 				entrypoints: [bundleProbePath],
@@ -147,7 +146,7 @@ describe("changelog static import resources", () => {
 			});
 			expect(buildOutput.success, buildOutput.logs.map(log => log.message).join("\n")).toBe(true);
 
-			const result = await runProbe([binaryPath, missingPackageChangelogPath], unrelatedCwd);
+			const result = await runProbe<BundleProbeResult>([binaryPath, missingPackageChangelogPath], unrelatedCwd);
 			expect(result.version).toBe(RELEASE_BASE_VERSION);
 			expect(result.entries).toBe(sourceResult.entries);
 		} finally {

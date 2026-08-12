@@ -1006,9 +1006,11 @@ export function serializeConversation(messages: Message[], options?: SerializeOp
 
 function textBlocks(content: Message["content"]): string[] {
 	if (typeof content === "string") return [content];
-	return content
-		.filter((block): block is { type: "text"; text: string } => block.type === "text")
-		.map(block => block.text);
+	const texts: string[] = [];
+	for (const block of content) {
+		if (block.type === "text" && "text" in block) texts.push(block.text);
+	}
+	return texts;
 }
 
 function stripCodeBlocks(text: string): string {
@@ -2314,13 +2316,13 @@ export async function compact<TMessage = Message>(
 	const textChars = textHead.length + textTail.length;
 
 	const frames = await Promise.all(newFrames);
-const exactTextChars = exactStringText.length;
-const totalChars = frames.reduce((sum, frame) => sum + frame.chars, 0) + textChars + exactTextChars;
-const frameCols: number[] = [];
-for (const frame of frames) {
-	if (!frameCols.includes(frame.cols)) frameCols.push(frame.cols);
-}
-const summaryCols = frameCols.length > 0 ? frameCols.join(" or ") : geo.cols;
+	const exactTextChars = exactStringText.length;
+	const totalChars = frames.reduce((sum, frame) => sum + frame.chars, 0) + textChars + exactTextChars;
+	const frameCols: number[] = [];
+	for (const frame of frames) {
+		if (!frameCols.includes(frame.cols)) frameCols.push(frame.cols);
+	}
+	const summaryCols = frameCols.length > 0 ? frameCols.join(" or ") : geo.cols;
 
 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
 	const files = formatFileList(readFiles, modifiedFiles, fileOps.read);
