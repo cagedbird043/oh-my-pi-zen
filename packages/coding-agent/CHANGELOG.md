@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [17.3.0-zen.1] - 2026-08-13
+
 ### Added
 
 - Added `--external-thinking` CLI flag to force external thinking tool activation.
