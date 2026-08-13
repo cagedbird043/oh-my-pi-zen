@@ -265,26 +265,6 @@ export async function generateTitleOnline(
 			// account_uuid rather than the snapshot-at-call-site value.
 			const metadata = metadataResolver?.(model.provider);
 
-		const response = await completeSimple(
-			model,
-			{
-				systemPrompt,
-				messages: [{ role: "user", content: userMessage, timestamp: Date.now() }],
-			},
-			{
-				apiKey: registry.resolver(model, sessionId),
-				maxTokens,
-				disableReasoning: true,
-				// Greedy decode: titling is extraction, not generation. Backends that
-				// default temperature high (e.g. Ollama's 0.8) otherwise garble names
-				// from the message ("hashline" → "HasHroshi"). Providers whose models
-				// reject sampling params drop this via `supportsSamplingParams`.
-				temperature: 0,
-				metadata,
-				signal,
-			},
-		);
-
 			const response = await completeSimple(
 				model,
 				{
