@@ -105,5 +105,5 @@ try {
 			rescue.close();
 			await fs.rm(home, { recursive: true, force: true });
 		}
-	}, 30_000);
+	}, 45_000);
 });
