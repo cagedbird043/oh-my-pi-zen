@@ -1006,9 +1006,7 @@ export function serializeConversation(messages: Message[], options?: SerializeOp
 
 function textBlocks(content: Message["content"]): string[] {
 	if (typeof content === "string") return [content];
-	return content
-		.filter((block): block is { type: "text"; text: string } => block.type === "text")
-		.map(block => block.text);
+	return content.filter((block): block is TextContent => block.type === "text").map(block => block.text);
 }
 
 function stripCodeBlocks(text: string): string {
