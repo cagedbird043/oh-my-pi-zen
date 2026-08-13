@@ -83,8 +83,10 @@ function makeSegmentContext(overrides: Partial<SegmentContext> = {}): SegmentCon
 		options: {},
 		compactThinkingLevel: false,
 		planMode: null,
+		prewalk: null,
 		loopMode: null,
 		goalMode: null,
+		vibeMode: null,
 		collab: null,
 		activeRepo: null,
 		usageStats: {
