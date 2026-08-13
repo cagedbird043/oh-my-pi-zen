@@ -25,22 +25,23 @@
 ### Changed
 
 - Updated archived transcript rendering to use a more compact format with `¶user:`, `¶think:`, `¶ai:`, and `¶call:` scopes, omitting repeated adjacent scope headers and appending tool-call intents as comments.
+
+## [16.3.15-zen.1] - 2026-07-10
+
 ### Added
 
 - Added Unicode Snapcompact exact-string anchor metadata for byte-sensitive paths, commands, hashes, architecture tokens, symbols, versions, and URI refs.
+- Added Unicode Snapcompact zpix shape presets and a separate unicode shape resolver for CJK/Unicode bitmap archive rendering.
+
+### Fixed
+
+- Fixed Unicode Snapcompact advance-frame pagination, character accounting, Silver fallback rendering, and injected skill prompt compaction.
 
 ## [16.3.7] - 2026-07-05
 
 ### Fixed
 
 - Fixed `resolveShapeForText(..., "auto")` to correctly select the `silver16-bw` shape for CJK-heavy transcript text while preserving explicit shape overrides.
-### Added
-
-- Added Unicode Snapcompact zpix shape presets and a separate unicode shape resolver for CJK/Unicode bitmap archive rendering.
-
-### Fixed
-
-- Fixed Unicode Snapcompact advance-frame pagination, character accounting, Silver fallback rendering, and injected skill prompt compaction.
 
 ## [16.2.8] - 2026-06-30
 

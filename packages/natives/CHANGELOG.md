@@ -115,6 +115,13 @@
 
 - Split the native voice engine (miniaudio capture/playback, WebRTC peer, Opus media) out of the `pi-natives` addon crate into a napi-free `pi-voice` rlib. The addon keeps thin `#[napi]` adapters, so the JS API is unchanged; the webrtc/opus/miniaudio dependency graph now compiles once into the library and no longer rebuilds with the addon leaf (which recompiles every release via its version-sentinel edit).
 - Release binaries now build in parallel with the test fan-out; npm leaf publishing moved to a dedicated post-validation job (`release_native_leaves`), and darwin release bazel caches are pre-warmed on native-affecting main pushes — cutting release wall time from the previous serialized tests → cold darwin build pipeline.
+
+### Fixed
+
+- Fixed source and CI imports resolving a locally generated macOS embedded-addon archive on Linux; the tracked module is now the platform-neutral development stub.
+
+## [17.1.8-zen.3] - 2026-07-30
+
 ### Fixed
 
 - Fixed source and CI imports resolving a locally generated macOS embedded-addon archive on Linux; the tracked module is now the platform-neutral development stub.
@@ -267,6 +274,16 @@
 - Optimized non-recursive glob patterns (e.g., `dir/*.json`) to prevent traversing entire subtrees, significantly improving performance and preventing timeouts when searching large directories.
 - Fixed native filesystem searches (`glob`, `grep`, and AST search/edit) incorrectly excluding explicitly rooted directories due to ancestor ignore rules.
 
+## [16.3.15-zen.1] - 2026-07-10
+
+### Added
+
+- Added embedded zpix TrueType font support to `renderSnapcompactPng`, including binary indexed rasterization with a coverage threshold for Unicode Snapcompact frames.
+
+### Fixed
+
+- Fixed zpix advance Snapcompact frame splitting and rendering to share Silver fallback glyph handling, keeping Unicode pagination aligned with native rasterization.
+
 ## [16.3.13] - 2026-07-09
 
 ### Fixed
@@ -279,15 +296,14 @@
 
 ### Fixed
 
-- Fixed the native build script failing to locate the `@napi-rs/cli` `napi` binary on Windows because the `PATH` lookup joined entries with a Unix `:` separator instead of the platform delimiter (`path.delimiter`).
-- Fixed a Windows regression where an abnormal `omp` exit or bash cancellation could `TerminateProcess` unrelated `pwsh.exe` / `powershell.exe` sessions (including other Cursor terminal tabs). `SpawnRegistry` stored only the raw pid of each brush-spawned child and re-opened it via `Process::from_pid` at cancellation time; between those two moments Windows could recycle a freed pid onto an unrelated PowerShell, and `signal_tree` then walked the wrong subtree via Toolhelp. The observer now pins a stable `Process` handle at spawn time — on Windows the open handle keeps the pid slot reserved, on Linux the pidfd carries identity, on macOS the `(pid, start_time)` triple detects impersonation — so cancellation can only reach children this run actually launched. The registry sweeps exited entries once the recorded set crosses a small threshold so a long bash loop of short external commands cannot pin one owned OS handle per historical spawn. ([#4605](https://github.com/can1357/oh-my-pi/issues/4605))
-### Added
+- Fixed native builds leaving generated TypeScript declarations dirty in the source checkout.
 
-- Added embedded zpix TrueType font support to `renderSnapcompactPng`, including binary indexed rasterization with a coverage threshold for Unicode Snapcompact frames.
+## [16.3.11-zen.1] - 2026-07-07
 
 ### Fixed
 
-- Fixed zpix advance Snapcompact frame splitting and rendering to share Silver fallback glyph handling, keeping Unicode pagination aligned with native rasterization.
+- Fixed the native build script failing to locate the `@napi-rs/cli` `napi` binary on Windows because the `PATH` lookup joined entries with a Unix `:` separator instead of the platform delimiter (`path.delimiter`).
+- Fixed a Windows regression where an abnormal `omp` exit or bash cancellation could `TerminateProcess` unrelated `pwsh.exe` / `powershell.exe` sessions (including other Cursor terminal tabs). `SpawnRegistry` stored only the raw pid of each brush-spawned child and re-opened it via `Process::from_pid` at cancellation time; between those two moments Windows could recycle a freed pid onto an unrelated PowerShell, and `signal_tree` then walked the wrong subtree via Toolhelp. The observer now pins a stable `Process` handle at spawn time — on Windows the open handle keeps the pid slot reserved, on Linux the pidfd carries identity, on macOS the `(pid, start_time)` triple detects impersonation — so cancellation can only reach children this run actually launched. The registry sweeps exited entries once the recorded set crosses a small threshold so a long bash loop of short external commands cannot pin one owned OS handle per historical spawn. ([#4605](https://github.com/can1357/oh-my-pi/issues/4605))
 
 ## [16.3.6] - 2026-07-04
 

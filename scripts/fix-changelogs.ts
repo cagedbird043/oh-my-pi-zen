@@ -785,6 +785,7 @@ async function collectHistoricalReleaseRecovery(
 	tags?: readonly string[],
 ): Promise<Map<string, HistoricalReleaseRecovery>> {
 	const selectedTags = tags ?? (await recoveryTags(repoRoot));
+	const recoveryByPath = new Map<string, HistoricalReleaseRecovery>();
 
 	for (const tag of selectedTags) {
 		for (const changelogPath of paths) {
@@ -841,6 +842,7 @@ export async function runChangelogFixer(options: RunChangelogFixerOptions = {}):
 	const historicalRecoveryByPath = options.recover
 		? await collectHistoricalReleaseRecovery(repoRoot, paths, options.recoveryTags)
 		: new Map<string, HistoricalReleaseRecovery>();
+	const changedFiles: ChangedChangelogSummary[] = [];
 
 	for (const changelogPath of paths) {
 		const absolutePath = path.join(repoRoot, changelogPath);
