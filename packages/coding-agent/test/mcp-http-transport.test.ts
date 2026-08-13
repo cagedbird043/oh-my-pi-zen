@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, vi } from "bun:test";
 import { HttpTransport } from "@oh-my-pi/pi-coding-agent/mcp/transports/http";
 
 const encoder = new TextEncoder();
@@ -14,6 +14,7 @@ type ToolList = {
 afterEach(() => {
 	server?.stop(true);
 	server = null;
+	vi.restoreAllMocks();
 });
 
 async function connectedTransport(): Promise<HttpTransport> {
@@ -256,6 +257,7 @@ describe("MCP Streamable HTTP POST response resumption", () => {
 		expect(observed.auth).toEqual(["Bearer stale", "Bearer fresh"]);
 		expect(observed.lastEventId).toBe("stream-1");
 	});
+
 });
 
 describe("MCP Streamable HTTP GET listener resumption", () => {
