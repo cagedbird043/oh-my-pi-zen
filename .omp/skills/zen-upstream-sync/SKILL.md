@@ -17,6 +17,8 @@ Rebuild the downstream stack from a verified upstream release tag. NEVER merge a
 - MUST regenerate derived files against the new baseline.
 - MUST verify source, native code, focused contracts, and a compiled binary.
 - MUST obtain explicit approval before `--force-with-lease` or any other history replacement.
+- NEVER use the release script's `--watch`; trigger publication without it and monitor only through Harness GitHub `run_watch`.
+- MUST run the exact hosted CI test buckets locally before the first release tag, not merely focused tests plus `bun check`.
 
 ## Inputs
 
@@ -79,36 +81,78 @@ Regenerate from the new baseline instead of copying old artifacts:
 - Reconcile new required fields, narrowed types, and provider interfaces at their source; NEVER add compatibility shims for removed upstream APIs.
 - Format only touched files using project tooling.
 
+### Native freshness gate
+
+Native-dependent verification MUST use an addon rebuilt from the current branch. A matching version sentinel does not prove the addon contains newly added N-API exports.
+
+1. Rebuild/install the host addon through the same Bazel path CI uses.
+2. Load the resulting `.node` directly and verify:
+   - expected version sentinel;
+   - every newly required export (for example a new N-API class or method);
+   - source loader resolves to that artifact, not a stale candidate.
+3. Re-run native-dependent tests only after this check.
+4. Treat worktree-local `.node` files and npm-downloaded fallback addons as stale until proven otherwise.
+5. Refresh `MODULE.bazel.lock` after the final release version bump when Cargo/package versions affect Bazel inputs.
+
+### Test isolation rules learned from release failures
+
+- Temporary Git repositories MUST set `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_SYSTEM=/dev/null`. User settings such as `core.fsmonitor=true` can corrupt split-index/worktree expectations.
+- Tests requiring a specific available model MUST create an isolated `ModelRegistry` and explicitly provide that model. NEVER depend on process-global registry/auth state left by earlier tests.
+- Network failure tests MUST inject deterministic `ReadableStream` events/errors. NEVER depend on raw TCP packet boundaries, write-versus-FIN timing, or a single `data` callback containing a complete HTTP request.
+- Cross-process tests MUST use deterministic result transfer. Prefer synchronous argv spawning or an explicit result file when stdout/pipe completion can race the test runner.
+- NEVER use `mock.module()`; its global module-registry effects leak across files.
+- A test that passes alone but fails in its hosted bucket is not green. Reproduce the entire bucket before release.
+
 Commit the reconciliation separately from replayed commits so future syncs can audit why adaptation was needed.
 
 ## Phase 5: Verify the rebuilt branch
 
-Required gates:
+Required gates, in order:
 
-```bash
-CMAKE_POLICY_VERSION_MINIMUM=3.5 CI=1 bun check
-CI=1 bun run ci:test:smoke
-```
+1. Focused contracts for every replayed downstream feature.
+2. Zen release/release-note/native-version tests.
+3. Changelog parsing and bundle-resource tests.
+4. Fresh host native build and export check from the current branch.
+5. Exact hosted test buckets, including the native/unit release gate:
 
-Also run:
+   ```bash
+   OMP_TEST_CONCURRENCY=4 OMP_TEST_CHUNK_TIMEOUT=1200 CI=1 \
+     bun run ci:test:coding-agent:native
+   ```
 
-- Focused tests for every replayed downstream feature.
-- Zen release/release-note/native-version tests.
-- Changelog parsing and bundle-resource tests.
-- `CI=1 bun run check:rs` when Rust/native inputs changed; `bun check` normally includes it.
-- Host native build: `bun run build:native`.
-- Host release binary build:
-  `PI_BINARY_BASENAME=omp-zen bun scripts/ci-release-build-binaries.ts --targets <host-target>`.
-- Compiled binary checks: `--version` and `--smoke-test`.
+   Inspect `.github/workflows/ci.yml` and `scripts/ci-test-ts.ts` for any other changed or newly required buckets; run their exact commands and environment rather than approximating them with a broad test invocation.
+6. Full repository checks:
 
-Before integration, require:
+   ```bash
+   CMAKE_POLICY_VERSION_MINIMUM=3.5 CI=1 bun check
+   CI=1 bun run ci:test:smoke
+   ```
 
-- No conflict markers.
-- `git diff --check` clean.
-- No tracked build/generated drift.
-- Focused tests green.
-- Full `bun check` green.
-- Compiled binary smoke green.
+7. Host release binary build:
+
+   ```bash
+   PI_BINARY_BASENAME=omp-zen bun scripts/ci-release-build-binaries.ts --targets <host-target>
+   ```
+
+8. Compiled binary `--version` and `--smoke-test`.
+
+`bun check` normally includes Rust validation; also run `CI=1 bun run check:rs` directly when Rust/native inputs changed or when isolating a failure.
+
+### Pre-integration checklist
+
+Every item MUST be true before replacing `zen/main`:
+
+- [ ] Stable upstream release tag and exact SHA recorded.
+- [ ] Old `zen/main` has a durable immutable tag or pushed backup ref.
+- [ ] No conflict markers or replay damage such as literal `\t` indentation.
+- [ ] `git diff --check` clean.
+- [ ] Generated files and changelogs regenerated from the new baseline.
+- [ ] Fresh Bazel/native addon loaded; sentinel and new exports verified.
+- [ ] Focused downstream contracts green.
+- [ ] Exact hosted CI buckets green, especially `ci:test:coding-agent:native`.
+- [ ] Full `bun check` green.
+- [ ] Compiled binary version and smoke green.
+- [ ] No tracked build drift or accidental Bazel worktree symlink.
 
 ## Phase 6: Integrate safely
 
@@ -119,28 +163,33 @@ Before integration, require:
 5. Push with an exact lease against the previously recorded remote `zen/main` SHA.
 6. NEVER use plain `--force`.
 7. Confirm remote `zen/main` equals the verified SHA.
-8. Watch all workflows for that SHA; fix real failures on the feature branch, re-run gates, and repeat integration only with a fresh lease.
+8. Monitor every workflow for that exact SHA using Harness GitHub `run_watch`; fix real failures on the feature branch, re-run the exact failed bucket plus all required gates, and repeat integration only with a fresh lease.
 
 ## Phase 7: Release
 
 Only after integrated `zen/main` CI is green:
 
-1. Run the Zen release workflow for `next` (or the explicitly requested version).
+1. Run `bun scripts/zen/release.ts next` (or the explicitly requested version) **without `--watch`**.
 2. Confirm it performs the release bump last, updates package/Cargo/native sentinel versions, regenerates locks, finalizes changelogs, commits, tags, and pushes.
-3. Watch release CI to completion.
-4. NEVER move an existing tag to repair a failed release. Fix forward and create the next valid release when required.
+3. Use Harness GitHub `run_watch` for the release commit/run until every job has a terminal result. The script's built-in watcher and external `gh run watch` are prohibited.
+4. Inspect the exact failed job log and reproduce its exact bucket/environment locally before changing code.
+5. NEVER move an existing tag to repair a failed release. Preserve the failed `zen.N` tag, fix forward on `zen/main`, obtain green mainline CI, then publish `zen.(N+1)`.
+6. A failure-only test stabilization MUST address its root cause: isolate global Git/settings/model state or replace timing-dependent fixtures. NEVER add sleeps, retries, or wider timeouts to hide it.
 
 ## Phase 8: Verify published artifacts
 
-Verify independently, not only from CI status:
+Verify independently; workflow-level `completed/success` is insufficient because an individual publish job can still appear in progress in a stale Harness snapshot:
 
-- GitHub release/tag points to the release bump commit.
-- Expected platform binaries and checksum manifest exist.
-- npm Zen packages expose the exact release version.
+- Re-run Harness `run_watch` until the release run and every listed job have terminal conclusions.
+- GitHub release is Latest, its tag points to the release bump commit, and expected platform binaries/checksum manifest exist.
+- Query npm registry directly for the primary package, native package, and every platform leaf at the exact version.
+- Verify npm `latest` for the primary and native packages.
 - Published package names are `@oh-my-pi-zen/*`; source names remain `@oh-my-pi/*`.
-- Install or pack the primary coding-agent package in a clean temp directory.
+- Install the primary coding-agent package in a clean temporary environment.
 - Run installed `omp --version` and `omp --smoke-test`.
 - Confirm update metadata/distribution fields target the Zen repository and package.
+
+Do not infer npm publication from a green workflow or GitHub Release alone.
 
 ## Phase 9: Cleanup
 
