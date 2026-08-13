@@ -120,13 +120,10 @@ describe("resolveProviderChain", () => {
 	it("prioritizes configured anysearch over duckduckgo in auto mode", async () => {
 		enableKeyBackedProviders();
 		process.env.ANYSEARCH_API_KEY = "test-anysearch-key";
+		setExcludedSearchProviders(SEARCH_PROVIDER_ORDER.filter(id => id !== "anysearch" && id !== "duckduckgo"));
 		try {
-			const providers = await resolveProviderChain(authStorage, "auto");
-			const anysearchIndex = providers.findIndex(p => p.id === "anysearch");
-			const duckduckgoIndex = providers.findIndex(p => p.id === "duckduckgo");
-			expect(anysearchIndex).toBeGreaterThanOrEqual(0);
-			expect(duckduckgoIndex).toBeGreaterThanOrEqual(0);
-			expect(anysearchIndex).toBeLessThan(duckduckgoIndex);
+			const providers = await resolveProviderChain(authStorage);
+			expect(providers.map(provider => provider.id)).toEqual(["anysearch", "duckduckgo"]);
 		} finally {
 			delete process.env.ANYSEARCH_API_KEY;
 		}
