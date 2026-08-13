@@ -330,7 +330,11 @@ async function packAndPublish(dir: string, name: string): Promise<void> {
 	try {
 		const packed = await (Bun.env.PI_PACK_IGNORE_SCRIPTS === "true"
 			? $`bun pm pack --quiet --ignore-scripts --destination ${packDir}`
-			: $`bun pm pack --quiet --destination ${packDir}`).cwd(dir).quiet().nothrow();
+			: $`bun pm pack --quiet --destination ${packDir}`
+		)
+			.cwd(dir)
+			.quiet()
+			.nothrow();
 		const packOutput = `${packed.stdout.toString()}${packed.stderr.toString()}`.trim();
 		if (packed.exitCode !== 0) {
 			if (packOutput) console.log(packOutput);

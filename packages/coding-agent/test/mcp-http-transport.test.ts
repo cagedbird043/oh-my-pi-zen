@@ -257,7 +257,6 @@ describe("MCP Streamable HTTP POST response resumption", () => {
 		expect(observed.auth).toEqual(["Bearer stale", "Bearer fresh"]);
 		expect(observed.lastEventId).toBe("stream-1");
 	});
-
 });
 
 describe("MCP Streamable HTTP GET listener resumption", () => {

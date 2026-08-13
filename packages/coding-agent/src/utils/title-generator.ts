@@ -264,6 +264,8 @@ export async function generateTitleOnline(
 			// request is already recorded; metadataResolver can then return the correct
 			// account_uuid rather than the snapshot-at-call-site value.
 			const metadata = metadataResolver?.(model.provider);
+			const maxTokens = TITLE_MAX_TOKENS;
+			logger.debug("title-generator: request", { ...modelContext, maxTokens });
 
 			const response = await completeSimple(
 				model,
