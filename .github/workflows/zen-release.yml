@@ -86,7 +86,6 @@ jobs:
          - name: Linux no-PipeWire compatibility smoke
            run: bun scripts/zen/native-portability-smoke.ts "$RUNNER_TEMP/zen-publish"
 
-         # These packages have trusted publishers for this workflow. Do not
-         # configure a registry token: npm must validate those OIDC publishers.
-         - name: Publish to npm with OIDC
+         # All packages use npm trusted publishing (OIDC).
+         - name: Publish zen packages
            run: bun scripts/zen/ci-release-publish.ts "$RUNNER_TEMP/zen-publish"
