@@ -11,14 +11,21 @@
  * are stubbed.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from "bun:test";
-import { importRoomKey } from "@oh-my-pi/pi-coding-agent/collab/crypto";
+import { importRoomKey, seal } from "@oh-my-pi/pi-coding-agent/collab/crypto";
 import { CollabGuestLink } from "@oh-my-pi/pi-coding-agent/collab/guest";
 import { CollabHost } from "@oh-my-pi/pi-coding-agent/collab/host";
-import { COLLAB_PROTO, type CollabFrame, parseCollabLink } from "@oh-my-pi/pi-coding-agent/collab/protocol";
+import {
+	COLLAB_PROTO,
+	type CollabFrame,
+	packEnvelope,
+	parseCollabLink,
+	unpackEnvelope,
+} from "@oh-my-pi/pi-coding-agent/collab/protocol";
 import { CollabSocket } from "@oh-my-pi/pi-coding-agent/collab/relay-client";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import type { InteractiveModeContext } from "@oh-my-pi/pi-coding-agent/modes/types";
 import type { SessionEntry } from "@oh-my-pi/pi-coding-agent/session/session-entries";
+import { GuestClient } from "../../../collab-web/src/lib/client";
 import { installInMemoryRelay, uninstallInMemoryRelay } from "./helpers/in-memory-relay";
 
 // In-memory transport: shared FakeWebSocket + InMemoryRelay harness (see
@@ -280,6 +287,151 @@ describe("collab chunked welcome (#3144)", () => {
 		for (const chunk of chunks) flattened.push(...chunk.entries);
 		expect(flattened.length).toBe(snapshot.entries.length);
 		expect(flattened.map(e => e.id)).toEqual(snapshot.entries.map(e => e.id));
+	});
+
+	it("keeps full history as ordinary sealed JSON for a peer that advertises no extensions", async () => {
+		const parsed = parseCollabLink(host.link);
+		if ("error" in parsed) throw new Error(parsed.error);
+		const key = await importRoomKey(parsed.key);
+		const ws = new WebSocket(`${parsed.wsUrl}?role=guest`);
+		ws.binaryType = "arraybuffer";
+		guestCleanups.push(() => ws.close());
+		const done = Promise.withResolvers<void>();
+		const entries: string[] = [];
+		let chain = Promise.resolve();
+		ws.onopen = () => {
+			void seal(key, { t: "hello", proto: COLLAB_PROTO, name: "old-client" }).then(bytes =>
+				ws.send(packEnvelope(0, bytes)),
+			);
+		};
+		ws.onmessage = event => {
+			if (typeof event.data === "string") return;
+			const envelope = unpackEnvelope(new Uint8Array(event.data as ArrayBuffer));
+			if (!envelope) return;
+			chain = chain
+				.then(async () => {
+					const sealed = envelope.payload;
+					const plain = await crypto.subtle.decrypt(
+						{ name: "AES-GCM", iv: sealed.slice(0, 12) },
+						key,
+						sealed.slice(12),
+					);
+					// Exactly the old decoder: no compression marker or decompression support.
+					const frame = JSON.parse(new TextDecoder().decode(plain)) as CollabFrame;
+					if (frame.t === "welcome") {
+						expect(frame.snapshotStart).toBeUndefined();
+						expect(frame.compression).toBeUndefined();
+						expect(frame.entryCount).toBe(snapshot.entries.length);
+					}
+					if (frame.t === "snapshot-chunk") {
+						entries.push(...frame.entries.map(entry => entry.id));
+						if (frame.final) done.resolve();
+					}
+				})
+				.catch(done.reject);
+		};
+		await done.promise;
+		expect(entries).toEqual(snapshot.entries.map(entry => entry.id));
+	});
+
+	it("joins with a bounded tail then fetches the exact preceding slices through fetch-transcript", async () => {
+		const parsed = parseCollabLink(host.link);
+		if ("error" in parsed) throw new Error(parsed.error);
+		const socket = new CollabSocket({ wsUrl: parsed.wsUrl, role: "guest", key: await importRoomKey(parsed.key) });
+		guestCleanups.push(() => socket.close());
+		const done = Promise.withResolvers<void>();
+		let before = 0;
+		let reqId = 0;
+		let entries: SessionEntry[] = [];
+		const fetchPrevious = (): void => {
+			if (before === 0) {
+				done.resolve();
+				return;
+			}
+			socket.send({
+				t: "fetch-transcript",
+				reqId: ++reqId,
+				agentId: "",
+				fromByte: 0,
+				history: { before, beforeId: entries[0]!.id },
+			});
+		};
+		socket.onOpen = () =>
+			socket.send({
+				t: "hello",
+				proto: COLLAB_PROTO,
+				name: "tail-client",
+				capabilities: { tail: true, compression: ["deflate"] },
+			});
+		socket.onFrame = frame => {
+			try {
+				if (frame.t === "welcome") {
+					expect(frame.entryCount).toBe(snapshot.entries.length);
+					expect(frame.snapshotStart).toBeGreaterThan(0);
+					expect(frame.compression).toBe("deflate");
+					before = frame.snapshotStart!;
+				} else if (frame.t === "snapshot-chunk") {
+					entries.push(...frame.entries);
+					if (frame.final) {
+						expect(entries.map(entry => entry.id)).toEqual(snapshot.entries.slice(before).map(entry => entry.id));
+						fetchPrevious();
+					}
+				} else if (frame.t === "transcript") {
+					expect(frame.error).toBeUndefined();
+					const page = frame.history!;
+					expect(page.before).toBe(before);
+					expect(page.entries.map(entry => entry.id)).toEqual(
+						snapshot.entries.slice(page.start, before).map(entry => entry.id),
+					);
+					entries = [...(page.entries as SessionEntry[]), ...entries];
+					before = page.start;
+					fetchPrevious();
+				}
+			} catch (error) {
+				done.reject(error);
+			}
+		};
+		socket.connect();
+		await done.promise;
+		expect(entries.map(entry => entry.id)).toEqual(snapshot.entries.map(entry => entry.id));
+	});
+
+	it("loads compressed tail history through the production browser guest and relay", async () => {
+		const client = new GuestClient(host.link, "browser-tail-client");
+		guestCleanups.push(() => client.close());
+		const waitForSnapshot = (ready: () => boolean): Promise<void> => {
+			const { promise, resolve } = Promise.withResolvers<void>();
+			const unsubscribe = client.subscribe(() => {
+				if (!ready()) return;
+				unsubscribe();
+				resolve();
+			});
+			guestCleanups.push(unsubscribe);
+			if (ready()) {
+				unsubscribe();
+				resolve();
+			}
+			return promise;
+		};
+		client.connect();
+		await waitForSnapshot(() => client.getSnapshot().phase === "live");
+		const initial = client.getSnapshot();
+		expect(initial.history.remaining).toBeGreaterThan(0);
+		expect(initial.entries.map(entry => entry.id)).toEqual(
+			snapshot.entries.slice(initial.history.remaining).map(entry => entry.id),
+		);
+		while (client.getSnapshot().history.remaining > 0) {
+			const before = client.getSnapshot().history.remaining;
+			client.loadEarlier();
+			await waitForSnapshot(() => !client.getSnapshot().history.loading);
+			const current = client.getSnapshot();
+			expect(current.history.error).toBeNull();
+			expect(current.history.remaining).toBeLessThan(before);
+			expect(current.entries.map(entry => entry.id)).toEqual(
+				snapshot.entries.slice(current.history.remaining).map(entry => entry.id),
+			);
+		}
+		expect(client.getSnapshot().entries.map(entry => entry.id)).toEqual(snapshot.entries.map(entry => entry.id));
 	});
 
 	it("rejects the pending join when snapshot resume fails", async () => {
