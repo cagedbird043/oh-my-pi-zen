@@ -107,7 +107,7 @@ function legalPayloadFiles(license: string | undefined): string[] {
  * Package-local license files win; missing files fall back to the
  * repository payload so generated and source packages follow one contract.
  */
-async function stageLegalPayloads(
+export async function stageLegalPayloads(
 	pkgDir: string,
 	license: string | undefined,
 	write: boolean,
@@ -236,7 +236,7 @@ function rewriteExports(exports: JsonValue, publishJs: boolean): JsonValue {
 }
 
 /** Compute (and optionally write) the published manifest for a package. */
-async function rewriteManifest(pkg: PublishPackage, write: boolean): Promise<PackageManifest> {
+export async function rewriteManifest(pkg: PublishPackage, write: boolean): Promise<PackageManifest> {
 	const manifestPath = path.join(repoRoot, pkg.dir, "package.json");
 	const manifest = (await Bun.file(manifestPath).json()) as PackageManifest;
 	if (pkg.publishBin) manifest.bin = { ...pkg.publishBin };
