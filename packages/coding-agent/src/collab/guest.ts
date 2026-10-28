@@ -370,6 +370,7 @@ export class CollabGuestLink {
 				proto: COLLAB_PROTO,
 				name: collabDisplayName(this.#ctx),
 				writeToken: this.#writeToken,
+				capabilities: { compression: ["deflate"] },
 			});
 		};
 		// The host dropped us (or never answered) while the relay link stayed up: say

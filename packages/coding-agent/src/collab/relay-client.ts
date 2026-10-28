@@ -151,6 +151,7 @@ export class CollabSocket {
 	/** Serializes open() so frames are delivered in arrival order. */
 	#recvChain: Promise<void> = Promise.resolve();
 	#pendingSends: PendingSend[] = [];
+	readonly #compressedPeers = new Set<number>();
 	/**
 	 * Peers the relay has retired. Sole authority for the queue invariant: **every
 	 * entry in {@link #pendingSends} with a non-zero `targetPeer` is work for a
@@ -216,6 +217,12 @@ export class CollabSocket {
 	send(frame: CollabFrame | EncodedFrame, targetPeer = 0): boolean {
 		if (this.#closed) return false;
 		return this.#sendOne(frame, targetPeer);
+	}
+
+	/** Only targeted replies to an advertising peer may use the deflate extension. */
+	setPeerCompression(peer: number, enabled: boolean): void {
+		if (enabled) this.#compressedPeers.add(peer);
+		else this.#compressedPeers.delete(peer);
 	}
 
 	/**
@@ -306,6 +313,7 @@ export class CollabSocket {
 	 */
 	dropPeer(peerId: number): number {
 		if (peerId === 0) return 0;
+		this.#compressedPeers.delete(peerId);
 		return this.#discardWhere(pending => pending.targetPeer === peerId);
 	}
 
@@ -347,6 +355,7 @@ export class CollabSocket {
 		this.#roomGeneration++;
 		this.#retiredPeers.clear();
 		this.#shedPeers.clear();
+		this.#compressedPeers.clear();
 		const discarded = this.#discardWhere(pending => pending.targetPeer !== 0);
 		if (discarded > 0) logger.debug("collab: discarded targeted sends across a reconnect", { discarded });
 	}
@@ -509,7 +518,11 @@ export class CollabSocket {
 				if (this.#closed || generation !== this.#sendGeneration) return;
 				if (pending.cancelled) continue;
 				const serialized = typeof next.value === "string" ? next.value : JSON.stringify(next.value);
-				const sealed = await sealSerialized(this.#opts.key, serialized);
+				const sealed = await sealSerialized(
+					this.#opts.key,
+					serialized,
+					this.#compressedPeers.has(pending.targetPeer),
+				);
 				if (this.#closed || generation !== this.#sendGeneration) return;
 				if (pending.cancelled) continue;
 				if ((await this.#sendEnvelope(pending, packEnvelope(pending.targetPeer, sealed), generation)) === "stop") {
@@ -535,7 +548,7 @@ export class CollabSocket {
 				value = next.value;
 			}
 			const serialized = typeof value === "string" ? value : JSON.stringify(value);
-			const sealed = await sealSerialized(this.#opts.key, serialized);
+			const sealed = await sealSerialized(this.#opts.key, serialized, this.#compressedPeers.has(pending.targetPeer));
 			if (this.#closed || generation !== this.#sendGeneration) return;
 			if (pending.cancelled) continue;
 			const envelope = packEnvelope(pending.targetPeer, sealed);
@@ -629,6 +642,7 @@ export class CollabSocket {
 		this.#roomGeneration++;
 		this.#retiredPeers.clear();
 		this.#shedPeers.clear();
+		this.#compressedPeers.clear();
 	}
 
 	#clearBackpressureDrain(): void {
