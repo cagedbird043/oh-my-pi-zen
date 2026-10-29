@@ -31,6 +31,8 @@ export declare class AudioPlayback {
 /** Persistent, serialized native desktop capture/input/accessibility session. */
 export declare class DesktopSession {
   constructor(options?: DesktopSessionOptions | undefined | null)
+  /** Version of the explicit `KWin` session options understood by this addon. */
+  static kwinSessionOptionsVersion(): number
   /**
    * Asks the worker when it is idle, so permissions are read live. While
    * another operation holds the worker, answers from the snapshot of the
@@ -110,7 +112,11 @@ export declare class DesktopSession {
   scroll(target: string, x: number, y: number, dx: number, dy: number, opts?: PointerOptions | undefined | null): Promise<DesktopFocusReturn | undefined | null>
   typeText(target: string, text: string, opts?: PointerOptions | undefined | null): Promise<DesktopTypeResult>
   keyChord(target: string, keys: Array<string>, opts?: PointerOptions | undefined | null): Promise<DesktopFocusReturn | undefined | null>
-  raiseWindow(windowId: string): Promise<undefined>
+  /**
+   * With `expected_active`, raise only if that window is still active in
+   * the same compositor transaction (`KWin` focus restoration).
+   */
+  raiseWindow(windowId: string, expectedActive?: string | undefined | null): Promise<undefined>
   axSnapshot(target: string, opts?: AxSnapshotOptions | undefined | null): Promise<AxSnapshot>
   axQuery(target: string, query: AxQuery): Promise<Array<AxNode>>
   /**
@@ -781,6 +787,10 @@ export declare class RunTrace {
   present(options: ShellVizOptions): string
 }
 
+export declare class SessionBusBridge {
+  stop(): void
+}
+
 /** Persistent embedded bash engine shell session. */
 export declare class Shell {
   /**
@@ -1239,6 +1249,9 @@ export interface Application {
   path: string
   running: boolean
   pid?: number
+  /** Linux desktop-entry browser classification and resolved Exec program. */
+  webBrowser?: boolean
+  executable?: string
 }
 
 /**
@@ -1859,8 +1872,8 @@ export declare function desktopEscapeStops(key: string): number
 /**
  * Where focus ended after a takeover input call.
  *
- * Input calls resolve to it on macOS and Windows when they took over, as
- * the window server reports it; other backends and background delivery
+ * Input calls resolve to it on macOS, Windows, or `KWin` when they took over,
+ * as does `apps.open` on Windows when it handed focus back. Background calls
  * resolve to `null`.
  */
 export interface DesktopFocusReturn {
@@ -1974,6 +1987,13 @@ export interface DesktopScreenState {
 export interface DesktopSessionOptions {
   display?: string
   /**
+   * Explicit `KWin` session bus; connection errors never fall back to the
+   * host.
+   */
+  kwinBusAddress?: string
+  /** Wayland socket belonging to the selected `KWin` session. */
+  waylandDisplay?: string
+  /**
    * Sessions created with the same key share one physical-Escape stop
    * count, which `desktopEscapeStops` reads after they close.
    */
@@ -2004,9 +2024,9 @@ export interface DesktopTypeResult {
 export interface DesktopWindow {
   /**
    * Backend-defined opaque window id, valid as a capture target while the
-   * window lives. Numeric on X11/Win32/macOS; a composite AT-SPI string on
-   * Wayland (e.g. `atspi::1.31:/org/a11y/atspi/accessible/1`). Never parse
-   * it.
+   * window lives. Numeric on X11/Win32/macOS; `kwin:{uuid}` on `KWin`;
+   * otherwise a composite AT-SPI string on Wayland (e.g.
+   * `atspi::1.31:/org/a11y/atspi/accessible/1`). Never parse it.
    */
   id: string
   /** Window title; may be empty for untitled windows. */
@@ -2021,6 +2041,8 @@ export interface DesktopWindow {
   height: number
   /** Whether the window currently holds input focus. */
   focused: boolean
+  /** Whether `KWin` has minimized this window; absent on other backends. */
+  minimized?: boolean
 }
 
 /**
@@ -3506,9 +3528,10 @@ export declare function normalizePtyDimensions(cols: number, rows: number): PtyD
 export declare function notebookToEditableText(json: string, displayPath: string): string
 
 /**
- * An opened application: its [`Application`] fields and the window it
- * shows. On macOS `window` is its frontmost window once one is on screen;
- * other platforms report none.
+ * An opened application and the window it shows.
+ *
+ * macOS returns its frontmost window; `KWin` returns an existing or newly
+ * launched matching window once it appears (within three seconds).
  */
 export interface OpenedApplication {
   id: string
@@ -4718,6 +4741,8 @@ export interface SpellingRange {
   /** UTF-16 length of the misspelled span. */
   length: number
 }
+
+export declare function startSessionBusBridge(privateAddress: string, names: Array<string>): SessionBusBridge
 
 /**
  * Unified-diff hunks with jsdiff
