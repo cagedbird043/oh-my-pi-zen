@@ -104,9 +104,8 @@ impl FrameGeometry {
 		Self { width, height, regions, layout: Vec::new(), kind: FrameKind::Desktop }
 	}
 
-	/// A capture of the whole `window`. Linux backends capture only the
-	/// on-monitor part and use [`Self::for_window_part`] instead.
-	#[cfg(any(target_os = "macos", target_os = "windows", test))]
+	/// A capture of the whole `window`, even portions outside the screen.
+	#[cfg(any(target_os = "linux", target_os = "macos", windows, test))]
 	pub(crate) fn for_window(window: &DesktopWindow, px_width: u32, px_height: u32) -> Self {
 		Self::for_window_part(
 			window,
@@ -577,6 +576,7 @@ mod tests {
 	}
 	fn window(x: i32, y: i32) -> DesktopWindow {
 		DesktopWindow {
+			minimized: None,
 			id: "7".into(),
 			title: "T".into(),
 			app: "A".into(),
