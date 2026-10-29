@@ -5,7 +5,6 @@ import { Image, type ImageBudget } from "../components/image";
 import { ImageProtocol, TERMINAL } from "../terminal-capabilities";
 import {
 	type DefaultTextStyle,
-	endsInsideOpenFence,
 	holdPartialTableRow,
 	Markdown,
 	type MarkdownTheme,
@@ -76,7 +75,9 @@ interface FastPathItem {
 }
 type DisplayThinkingContentBlock = ThinkingContentBlock & { rawThinking?: string };
 type StablePartKind = "thinking" | "text";
-type StablePart = { kind: StablePartKind; text: string; contentIndex: number } | { kind: "spacer" };
+type StablePart =
+	| { kind: StablePartKind; text: string; contentIndex: number; streaming?: boolean }
+	| { kind: "spacer" };
 
 /**
  * One published prefix of the block's finished content. Later snapshots extend
@@ -90,6 +91,8 @@ interface StableSnapshot {
 	readonly lastTextLength: number;
 	/** The final part ends inside a locked table that kept streaming (see Markdown.openTableTail). */
 	readonly openTable: boolean;
+	// Snapshot-local: replay still ends at this streaming prefix after finalize.
+	readonly openTail: boolean;
 }
 
 /**
@@ -250,19 +253,6 @@ function lerpHex(from: string, to: string, t: number): string {
 	const g = Math.round(fg + (tg - fg) * k);
 	const b = Math.round(fb + (tb - fb) * k);
 	return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-}
-
-/**
- * Drop the closing border the renderer draws for a source that ends inside an
- * open fence. That row is not part of the message yet: the live block reaches
- * it only when the closer arrives, so publishing it would make the settled
- * prefix disagree with the block render and freeze mid-stream retirement.
- */
-function trimFabricatedCloser(rows: readonly string[], source: string): readonly string[] {
-	if (!endsInsideOpenFence(source)) return rows;
-	let last = rows.length;
-	while (last > 0 && rows[last - 1]!.trim() === "") last--;
-	return last > 0 ? rows.slice(0, last - 1) : rows;
 }
 
 /**
@@ -1299,6 +1289,7 @@ export class AssistantMessageComponent extends Container {
 				width,
 				"replay",
 				snapshot.openTable,
+				snapshot.openTail,
 			);
 			if (this.#recordStableRows(index, width, rows)) return rows;
 		}
@@ -1322,20 +1313,34 @@ export class AssistantMessageComponent extends Container {
 		const { parts, openTable } = current;
 		const last = parts.at(-1);
 		if (!last || last.kind === "spacer") return;
-		const snapshot: StableSnapshot = { partCount: parts.length, lastTextLength: last.text.length, openTable };
+		const snapshot: StableSnapshot = {
+			partCount: parts.length,
+			lastTextLength: last.text.length,
+			openTable,
+			openTail: last.streaming === true,
+		};
 		const previous = this.#stableSnapshots.at(-1);
 		// An unmoved boundary publishes nothing whether or not it still extends
 		// the last snapshot, so most frames skip the whole-document comparison.
 		if (
 			previous?.partCount === snapshot.partCount &&
 			previous.lastTextLength === snapshot.lastTextLength &&
-			previous.openTable === snapshot.openTable
+			previous.openTable === snapshot.openTable &&
+			previous.openTail === snapshot.openTail
 		) {
 			return;
 		}
 		if (previous && !isSnapshotExtension(this.#stableParts, parts)) return;
 		this.#syncStableRenderInputs();
-		const currentRows = this.#renderStableParts(parts, parts.length, last.text.length, width, "head", openTable);
+		const currentRows = this.#renderStableParts(
+			parts,
+			parts.length,
+			last.text.length,
+			width,
+			"head",
+			openTable,
+			snapshot.openTail,
+		);
 		// The container verifies stable rows against the blank-trimmed render.
 		if (!isRowPrefix(currentRows, trimBlankEdges(rendered))) return;
 		const previousRows = previous
@@ -1390,7 +1395,7 @@ export class AssistantMessageComponent extends Container {
 					let past = streamingMarkdownSource(item.lastText).slice(raw.length);
 					if (item.blockType === "thinking") past = past.replace(UNSETTLED_THINKING_TAIL, "");
 					if (frozen.length > 0 && /\S/.test(past)) {
-						parts.push({ kind: item.blockType, text: frozen, contentIndex: item.contentIndex });
+						parts.push({ kind: item.blockType, text: frozen, contentIndex: item.contentIndex, streaming: true });
 						openTable = md.lastRenderStableTextEndsInOpenTable();
 					}
 					break;
@@ -1432,6 +1437,7 @@ export class AssistantMessageComponent extends Container {
 		width: number,
 		role: "head" | "replay",
 		openTable: boolean,
+		openTail: boolean,
 	): readonly string[] {
 		const ledger = this.#stableLedger(width);
 		const rows: string[] = [];
@@ -1457,6 +1463,7 @@ export class AssistantMessageComponent extends Container {
 					width,
 					closed ? undefined : role,
 					!closed && openTable,
+					!closed && openTail,
 				);
 				if (closed) ledger.parts[index] = { kind: part.kind, text, rows: partRows };
 			}
@@ -1478,6 +1485,7 @@ export class AssistantMessageComponent extends Container {
 		width: number,
 		role: "head" | "replay" | undefined,
 		openTable: boolean,
+		stablePrefixTail: boolean,
 	): readonly string[] {
 		const locks = this.#lockScope(contentIndex);
 		// Trim like the live children, dropping the trailing blank line a frozen
@@ -1486,21 +1494,24 @@ export class AssistantMessageComponent extends Container {
 		if (this.#transcriptBlockFinalized) {
 			const md = this.#createMarkdown(kind, trimmed, locks);
 			md.openTableTail = openTable;
+			md.stablePrefixTail = stablePrefixTail;
 			return md.render(width);
 		}
 		const head = this.#stableHeadRenderer;
 		const replay = this.#stableReplayRenderer;
 		const renderer = role === "head" ? head : role === "replay" ? replay : head?.index === index ? head : replay;
 		if (renderer?.index === index && renderer.kind === kind) {
+			renderer.md.stablePrefixTail = stablePrefixTail;
 			renderer.md.setText(trimmed);
 			renderer.md.openTableTail = openTable;
-			return trimFabricatedCloser(renderer.md.render(width), trimmed);
+			return renderer.md.render(width);
 		}
 		const md = this.#createMarkdown(kind, trimmed, locks);
 		md.openTableTail = openTable;
+		md.stablePrefixTail = stablePrefixTail;
 		if (role === "head") this.#stableHeadRenderer = { index, kind, md };
 		else if (role === "replay") this.#stableReplayRenderer = { index, kind, md };
-		return trimFabricatedCloser(md.render(width), trimmed);
+		return md.render(width);
 	}
 
 	/** Markdown for a text or thinking block; live children and stable-row renders share it so stable rows prefix the block render. */
