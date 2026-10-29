@@ -497,6 +497,49 @@ describe("composer inline shrink (#11007)", () => {
 		});
 	}
 
+	it("keeps locked-table history intact when the same stream continues into prose and an open code fence", async () => {
+		const h = makeHarness(COLUMNS, 20, 3);
+		h.composer.setPreferences({ completeScrollback: true });
+		try {
+			await h.scheduler.settle(h.terminal);
+			const message = new AssistantMessageComponent();
+			h.transcript.addChild(message);
+			const rows = Array.from(
+				{ length: 18 },
+				(_, i) => `| R${String(i).padStart(2, "0")} | ${"cell ".repeat(2 + (i % 5))} |`,
+			);
+			const head = "| Key | Value |\n|---|---|";
+			for (let n = 1; n <= rows.length; n++) {
+				message.updateContent(reply([head, ...rows.slice(0, n), ""].join("\n")), { transient: true });
+				h.composer.ui.requestRender();
+				await h.scheduler.settle(h.terminal);
+			}
+			const table = [head, ...rows].join("\n");
+			const prose = `${table}\n\nBRIDGE_A\nBRIDGE_B\nBRIDGE_C\n`;
+			const code = `${prose}\`\`\`ts\nconst complete = "CODE_FINISHED";\nconst pending =`;
+			const tableIds = rows.map((_, i) => `R${String(i).padStart(2, "0")}`);
+			const visibleTokens = () =>
+				h.terminal
+					.getScrollBuffer()
+					.flatMap(line => Bun.stripANSI(line).match(/\b(?:R\d\d|BRIDGE_A|BRIDGE_B|CODE_FINISHED)\b/g) ?? []);
+			for (const text of [prose, code]) {
+				message.updateContent(reply(text), { transient: true });
+				h.composer.ui.requestRender();
+				await h.scheduler.settle(h.terminal);
+				expect(visibleTokens().filter(token => /^R\d\d$/.test(token))).toEqual(tableIds);
+				expect(visibleTokens().filter(token => token === "BRIDGE_A")).toEqual(["BRIDGE_A"]);
+				expect(visibleTokens().filter(token => token === "BRIDGE_B")).toEqual(["BRIDGE_B"]);
+			}
+			message.updateContent(reply(code));
+			message.markTranscriptBlockFinalized();
+			h.composer.ui.requestRender();
+			await h.scheduler.settle(h.terminal);
+			expect(visibleTokens()).toEqual([...tableIds, "BRIDGE_A", "BRIDGE_B", "CODE_FINISHED"]);
+		} finally {
+			h.composer.stop();
+		}
+	});
+
 	it("with completeScrollback, leaves a table's layout alone when its block cannot publish mid-stream", async () => {
 		const h = makeHarness(COLUMNS, 20, 3);
 		h.composer.setPreferences({ completeScrollback: true });
