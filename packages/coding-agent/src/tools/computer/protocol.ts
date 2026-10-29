@@ -9,6 +9,9 @@ import secureInputTemplate from "../../prompts/tools/computer-secure-input.md" w
 import screenStateTemplate from "../../prompts/tools/computer-screen-state.md" with { type: "text" };
 
 export { COMPUTER_WORKER_ARG } from "../../cli/worker-selectors";
+import type { AgentDesktopResources, AgentDesktopState } from "./agent-desktop";
+
+export type ComputerCapabilities = DesktopCapabilities & { agentDesktop?: boolean; agentDesktopGeneration?: string };
 
 /** Frozen run settings transferred from the host session to the worker. */
 export interface ComputerSessionSnapshot {
@@ -25,6 +28,8 @@ export interface ComputerSessionSnapshot {
 	 * `release-display` rather than for the native grace period after its last request.
 	 */
 	displayTurn?: number;
+	agentDesktop?: boolean;
+	agentDesktopGeneration?: string;
 }
 
 /** Reply envelope for a session tool invoked by desktop JavaScript. */
@@ -55,6 +60,7 @@ export type ComputerWorkerInbound =
 			escape: ComputerEscapeScope;
 	  }
 	| { type: "capabilities"; id: string; session: ComputerSessionSnapshot; escape: ComputerEscapeScope }
+	| { type: "agent-desktop"; id: string; command: "start" | "stop" | "toggle"; expectedGeneration?: string }
 	| { type: "abort"; id: string }
 	| { type: "revoke-control"; id: string }
 	/** Agent turn `turn` ended: let the display sleep now, keeping every other piece of session state. */
@@ -82,7 +88,7 @@ export interface ComputerRunOk {
 	displays: Array<TextContent | ImageContent>;
 	returnValue: unknown;
 	screenshots: ComputerScreenshot[];
-	capabilities?: DesktopCapabilities;
+	capabilities?: ComputerCapabilities;
 }
 
 /** Result of a computer call the user stopped with physical Escape during takeover input. */
@@ -143,11 +149,15 @@ export interface RunErrorPayload {
 /** Events emitted by the persistent computer worker. */
 export type ComputerWorkerOutbound =
 	| { type: "ready" }
+	| { type: "agent-desktop"; id: string; ok: true; state: AgentDesktopState }
+	| { type: "agent-desktop"; id: string; ok: false; error: RunErrorPayload }
+	| { type: "agent-desktop-resources"; resources: AgentDesktopResources }
+	| { type: "agent-desktop-state"; state: AgentDesktopState; closedByUser?: boolean }
 	| { type: "control-revoked"; id: string }
 	| { type: "pong"; id: string }
 	| { type: "result"; id: string; ok: true; payload: ComputerRunOk }
 	| { type: "result"; id: string; ok: false; error: RunErrorPayload }
-	| { type: "capabilities"; id: string; ok: true; capabilities: DesktopCapabilities }
+	| { type: "capabilities"; id: string; ok: true; capabilities: ComputerCapabilities }
 	| { type: "capabilities"; id: string; ok: false; error: RunErrorPayload }
 	| { type: "tool-call"; id: string; runId: string; name: string; args: unknown }
 	| { type: "control-request"; id: string; runId: string; reason: string; timeoutMs: number }

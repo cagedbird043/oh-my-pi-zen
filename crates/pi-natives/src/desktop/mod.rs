@@ -14,6 +14,9 @@ mod menus;
 #[cfg(target_os = "macos")]
 mod native_helper;
 mod text_range;
+
+#[cfg(target_os = "linux")]
+pub use linux::dbus_bridge::{SessionBusBridge, start_session_bus_bridge};
 mod types;
 #[cfg(any(target_os = "windows", test))]
 mod win32;
@@ -36,7 +39,9 @@ use backend::{
 	Backend, ClickOptions, DeliveryMode, DisplayAwakeHold, ElementDelivery, ElementInput,
 	KeyboardFocus, MouseButton, PointerEvent, is_raise_action,
 };
-use control::{Admit, CancellationSource, InputLease, OperationToken};
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+use control::Admit;
+use control::{CancellationSource, InputLease, OperationToken};
 use error::{CoreResult, DesktopError, ErrorCode};
 use frame::{FrameGeometry, apply_capture_caps, encode_png};
 use keys::{parse_keys, parse_modifiers};
@@ -298,8 +303,9 @@ enum Request {
 		reply:    Reply,
 	},
 	RaiseWindow {
-		id:    String,
-		reply: Reply,
+		id:              String,
+		expected_active: Option<String>,
+		reply:           Reply,
 	},
 	AxSnapshot {
 		target:  Target,
@@ -772,13 +778,31 @@ struct Worker {
 	drawer_probed: std::collections::HashSet<String>,
 }
 
+fn observe_launched_windows<'a>(
+	seen: &mut std::collections::HashSet<String>,
+	windows: impl Iterator<Item = &'a DesktopWindow>,
+) -> (bool, Option<&'a DesktopWindow>) {
+	let mut changed = false;
+	let mut newly_focused = None;
+	for window in windows {
+		if seen.insert(window.id.clone()) {
+			changed = true;
+			if window.focused {
+				newly_focused = Some(window);
+			}
+		}
+	}
+	(changed, newly_focused)
+}
+
 impl Worker {
 	fn new(
 		selector: DisplaySelector,
+		options: DesktopSessionOptions,
 		capabilities: Arc<Mutex<Option<DesktopCapabilities>>>,
 		display_awake: Arc<DisplayAwake>,
 	) -> Self {
-		let backend = create_backend(selector);
+		let backend = create_backend(selector, options);
 		Self {
 			backend,
 			registry: AxRegistry::default(),
@@ -817,6 +841,87 @@ impl Worker {
 					},
 				})
 		})
+	}
+
+	fn open_application(
+		&mut self,
+		id: &str,
+		options: &ApplicationOpenOptions,
+		token: &OperationToken,
+	) -> CoreResult<OpenedApplication> {
+		let is_kwin = self
+			.backend
+			.as_mut()
+			.is_ok_and(|backend| backend.capabilities().backend == "kwin");
+		let before = if is_kwin {
+			self.backend()?.windows()?
+		} else {
+			Vec::new()
+		};
+		let previous = before.iter().find(|window| window.focused).cloned();
+		let mut opened =
+			applications::open(id, options.clone(), is_kwin.then_some(before.as_slice()))?;
+		if !is_kwin || opened.window.is_some() {
+			return Ok(opened);
+		}
+		let identity = applications::WindowIdentity::new(&opened);
+		if let Some(existing) = identity.unique(before.iter()) {
+			opened.running = true;
+			opened.pid = existing.pid;
+			opened.window = Some(existing.clone());
+			return Ok(opened);
+		}
+		let previous_pids = before.iter().filter_map(|window| window.pid).collect();
+		let known = before
+			.into_iter()
+			.map(|window| window.id)
+			.collect::<std::collections::HashSet<_>>();
+		let deadline = Instant::now() + Duration::from_secs(3);
+		let mut seen = std::collections::HashSet::new();
+		let mut changed = Instant::now();
+		loop {
+			token.check()?;
+			let windows = self.backend()?.windows()?;
+			if let Some(shown) = identity
+				.launched(windows.iter().filter(|window| !known.contains(&window.id)), &previous_pids)
+				.cloned()
+			{
+				let (new_windows, newly_focused) = observe_launched_windows(
+					&mut seen,
+					windows
+						.iter()
+						.filter(|window| !known.contains(&window.id) && window.pid == shown.pid),
+				);
+				if new_windows {
+					changed = Instant::now();
+				}
+				if !options.activate.unwrap_or(false)
+					&& let Some(active) = newly_focused
+					&& let Some(previous) = previous.as_ref()
+					&& windows.iter().any(|window| window.id == previous.id)
+				{
+					self
+						.backend()?
+						.raise_window_if_active(&previous.id, &active.id, token)?;
+				}
+				if changed.elapsed() >= Duration::from_millis(200) || Instant::now() >= deadline {
+					let observed = self.backend()?.windows()?;
+					opened.running = true;
+					opened.pid = shown.pid;
+					opened.window = identity
+						.launched(
+							observed.iter().filter(|window| !known.contains(&window.id)),
+							&previous_pids,
+						)
+						.cloned();
+					return Ok(opened);
+				}
+			}
+			if Instant::now() >= deadline {
+				return Ok(opened);
+			}
+			thread::sleep(Duration::from_millis(50));
+		}
 	}
 
 	fn frame(&self, target: &Target) -> CoreResult<FrameGeometry> {
@@ -897,8 +1002,7 @@ impl Worker {
 		let ax = backend
 			.as_mut()
 			.map_err(|error| error.clone())?
-			.ax()
-			.ok_or_else(DesktopError::ax_unsupported)?;
+			.ax_result()?;
 		ax::snapshot(ax, registry, &window, options)
 	}
 
@@ -1098,6 +1202,7 @@ impl Worker {
 				},
 			}
 		};
+		#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 		let lease = if !request.is_mutation() {
 			None
 		} else if request.takes_over_a_window() {
@@ -1112,6 +1217,12 @@ impl Worker {
 			})?)
 		} else {
 			Some(InputLease::acquire(token, request.takes_over())?)
+		};
+		#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+		let lease = if request.is_mutation() {
+			Some(InputLease::acquire(token, request.takes_over())?)
+		} else {
+			None
 		};
 		token.check()?;
 		// A full capture replaces coordinates only if it completes in its
@@ -1375,10 +1486,7 @@ impl Worker {
 	}
 
 	fn ax(&mut self) -> CoreResult<&mut dyn backend::AxBackend> {
-		self
-			.backend()?
-			.ax()
-			.ok_or_else(DesktopError::ax_unsupported)
+		self.backend()?.ax_result()
 	}
 
 	fn process(&mut self, request: &Request, token: &OperationToken) -> CoreResult<Response> {
@@ -1406,7 +1514,7 @@ impl Worker {
 				Ok(Response::Applications(applications::list(options.clone())?))
 			},
 			Request::OpenApplication { id, options, .. } => {
-				Ok(Response::OpenedApplication(applications::open(id, options.clone())?))
+				Ok(Response::OpenedApplication(self.open_application(id, options, token)?))
 			},
 			Request::MenuItems { target, path, .. } => {
 				let window = self.explicit_window(target)?;
@@ -1584,8 +1692,14 @@ impl Worker {
 					.key_chord(target, keys, takeover.mode(), token)?;
 				Ok(Response::Input(control::take_focus_return()))
 			},
-			Request::RaiseWindow { id, .. } => {
-				self.backend()?.raise_window(id, token)?;
+			Request::RaiseWindow { id, expected_active, .. } => {
+				if let Some(expected) = expected_active {
+					self
+						.backend()?
+						.raise_window_if_active(id, expected, token)?;
+				} else {
+					self.backend()?.raise_window(id, token)?;
+				}
 				Ok(Response::Unit)
 			},
 			Request::AxSnapshot { target, options, .. } => {
@@ -1597,8 +1711,7 @@ impl Worker {
 				let ax = backend
 					.as_mut()
 					.map_err(|error| error.clone())?
-					.ax()
-					.ok_or_else(DesktopError::ax_unsupported)?;
+					.ax_result()?;
 				Ok(Response::Nodes(ax::query(ax, registry, &window, query)?))
 			},
 			Request::AxElementAt { target, x, y, .. } => {
@@ -1606,8 +1719,7 @@ impl Worker {
 				let backend = backend
 					.as_mut()
 					.map_err(|error| error.clone())?
-					.ax()
-					.ok_or_else(DesktopError::ax_unsupported)?;
+					.ax_result()?;
 				Ok(Response::Node(ax::element_at_node(backend, registry, target.key(), *x, *y)?))
 			},
 			Request::AxFocused { .. } => {
@@ -1618,8 +1730,7 @@ impl Worker {
 						let ax = backend
 							.as_mut()
 							.map_err(|error| error.clone())?
-							.ax()
-							.ok_or_else(DesktopError::ax_unsupported)?;
+							.ax_result()?;
 						Some(register_node(ax, registry, "desktop", h, &mut AppFocus::default())?)
 					},
 					None => None,
@@ -1656,8 +1767,7 @@ impl Worker {
 					let ax = backend
 						.as_mut()
 						.map_err(|error| error.clone())?
-						.ax()
-						.ok_or_else(DesktopError::ax_unsupported)?;
+						.ax_result()?;
 					nodes.push(register_node(ax, registry, &target, h, &mut focus)?);
 				}
 				Ok(Response::Nodes(nodes))
@@ -1672,8 +1782,7 @@ impl Worker {
 						let ax = backend
 							.as_mut()
 							.map_err(|error| error.clone())?
-							.ax()
-							.ok_or_else(DesktopError::ax_unsupported)?;
+							.ax_result()?;
 						Some(register_node(ax, registry, &target, h, &mut AppFocus::default())?)
 					},
 					None => None,
@@ -1830,19 +1939,28 @@ impl Worker {
 }
 
 #[cfg(target_os = "macos")]
-fn create_backend(selector: DisplaySelector) -> CoreResult<Box<dyn Backend>> {
+fn create_backend(
+	selector: DisplaySelector,
+	_options: DesktopSessionOptions,
+) -> CoreResult<Box<dyn Backend>> {
 	Ok(Box::new(macos::MacosBackend::new(selector)?))
 }
 #[cfg(target_os = "windows")]
-fn create_backend(selector: DisplaySelector) -> CoreResult<Box<dyn Backend>> {
+fn create_backend(
+	selector: DisplaySelector,
+	_options: DesktopSessionOptions,
+) -> CoreResult<Box<dyn Backend>> {
 	Ok(Box::new(win32::Win32Backend::new(selector)?))
 }
 #[cfg(target_os = "linux")]
-fn create_backend(selector: DisplaySelector) -> CoreResult<Box<dyn Backend>> {
-	linux::new_backend(selector)
+fn create_backend(
+	selector: DisplaySelector,
+	options: DesktopSessionOptions,
+) -> CoreResult<Box<dyn Backend>> {
+	linux::new_backend(selector, options)
 }
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-fn create_backend(_: DisplaySelector) -> CoreResult<Box<dyn Backend>> {
+fn create_backend(_: DisplaySelector, _: DesktopSessionOptions) -> CoreResult<Box<dyn Backend>> {
 	Err(DesktopError::capture_failed("desktop backend unavailable on this platform"))
 }
 
@@ -1865,6 +1983,7 @@ struct Lifecycle {
 }
 struct SessionCore {
 	selector:          DisplaySelector,
+	options:           DesktopSessionOptions,
 	lifecycle:         Mutex<Lifecycle>,
 	capabilities:      Arc<Mutex<Option<DesktopCapabilities>>>,
 	display_awake:     Arc<DisplayAwake>,
@@ -1875,17 +1994,25 @@ struct SessionCore {
 	operation_timeout: Duration,
 }
 impl SessionCore {
+	#[cfg(test)]
 	fn new(selector: DisplaySelector, escape_stops: Arc<AtomicU32>) -> Arc<Self> {
-		Self::with_operation_timeout(selector, escape_stops, OPERATION_TIMEOUT)
+		Self::with_operation_timeout(
+			selector,
+			escape_stops,
+			OPERATION_TIMEOUT,
+			DesktopSessionOptions::default(),
+		)
 	}
 
 	fn with_operation_timeout(
 		selector: DisplaySelector,
 		escape_stops: Arc<AtomicU32>,
 		operation_timeout: Duration,
+		options: DesktopSessionOptions,
 	) -> Arc<Self> {
 		Arc::new(Self {
 			selector,
+			options,
 			lifecycle: Mutex::new(Lifecycle {
 				tx:     None,
 				done:   None,
@@ -1911,12 +2038,13 @@ impl SessionCore {
 		let (tx, rx) = flume::unbounded::<QueuedRequest>();
 		let (done_tx, done_rx) = flume::bounded(1);
 		let selector = self.selector.clone();
+		let options = self.options.clone();
 		let caps = Arc::clone(&self.capabilities);
 		let display_awake = Arc::clone(&self.display_awake);
 		let join = thread::Builder::new()
 			.name("omp-desktop-session".into())
 			.spawn(move || {
-				Worker::new(selector, caps, display_awake).serve(&rx, DISPLAY_AWAKE_GRACE);
+				Worker::new(selector, options, caps, display_awake).serve(&rx, DISPLAY_AWAKE_GRACE);
 				let _ = done_tx.send(());
 			})
 			.map_err(|e| {
@@ -2051,7 +2179,21 @@ impl DesktopSession {
 	pub fn new(options: Option<DesktopSessionOptions>) -> Result<Self> {
 		let options = options.unwrap_or_default();
 		let escape_stops = control::escape_stop_counter(options.escape_stop_key.as_deref());
-		Ok(Self { core: SessionCore::new(DisplaySelector::parse(options.display), escape_stops) })
+		let selector = DisplaySelector::parse(options.display.clone());
+		Ok(Self {
+			core: SessionCore::with_operation_timeout(
+				selector,
+				escape_stops,
+				OPERATION_TIMEOUT,
+				options,
+			),
+		})
+	}
+
+	/// Version of the explicit `KWin` session options understood by this addon.
+	#[napi]
+	pub fn kwin_session_options_version() -> u32 {
+		u32::from(cfg!(target_os = "linux"))
 	}
 
 	/// Asks the worker when it is idle, so permissions are read live. While
@@ -2519,10 +2661,19 @@ impl DesktopSession {
 		}))
 	}
 
+	/// With `expected_active`, raise only if that window is still active in
+	/// the same compositor transaction (`KWin` focus restoration).
 	#[napi]
-	pub fn raise_window(&self, window_id: String) -> Result<task::Promise<()>> {
-		Ok(self
-			.unit("desktop.raiseWindow", move |reply| Request::RaiseWindow { id: window_id, reply }))
+	pub fn raise_window(
+		&self,
+		window_id: String,
+		expected_active: Option<String>,
+	) -> Result<task::Promise<()>> {
+		Ok(self.unit("desktop.raiseWindow", move |reply| Request::RaiseWindow {
+			id: window_id,
+			expected_active,
+			reply,
+		}))
 	}
 
 	#[napi]
@@ -2840,6 +2991,41 @@ mod capture_tests {
 		keys::KeyName,
 	};
 
+	#[test]
+	fn launch_focus_return_only_handles_each_windows_first_appearance() {
+		let mut seen = HashSet::new();
+		let mut window = DesktopWindow {
+			id:        "new".into(),
+			app:       "editor".into(),
+			title:     "Editor".into(),
+			pid:       Some(1),
+			x:         0,
+			y:         0,
+			width:     100,
+			height:    100,
+			focused:   true,
+			minimized: None,
+		};
+		let (changed, restore) = observe_launched_windows(&mut seen, std::iter::once(&window));
+		assert!(changed);
+		assert_eq!(restore.map(|window| window.id.as_str()), Some("new"));
+		window.focused = false;
+		let (changed, restore) = observe_launched_windows(&mut seen, std::iter::once(&window));
+		assert!(!changed);
+		assert!(restore.is_none());
+		// The user selects the already-observed window while launch settles.
+		window.focused = true;
+		let (changed, restore) = observe_launched_windows(&mut seen, std::iter::once(&window));
+		assert!(!changed);
+		assert!(restore.is_none());
+		let other = DesktopWindow { id: "other".into(), focused: false, ..window.clone() };
+		let (_, restore) = observe_launched_windows(&mut seen, [&window, &other].into_iter());
+		assert!(restore.is_none());
+		let other = DesktopWindow { focused: true, ..other };
+		let (_, restore) = observe_launched_windows(&mut seen, std::iter::once(&other));
+		assert!(restore.is_none(), "a window first observed unfocused must not be restored later");
+	}
+
 	const WAYLAND_ID: &str = "atspi::1.31:/org/a11y/atspi/accessible/1";
 	/// A window of the fake's app that its window list leaves out, as macOS
 	/// leaves out windows on another Space.
@@ -2901,53 +3087,54 @@ mod capture_tests {
 	/// Backend that mints a composite AT-SPI window id, mirroring the Wayland
 	/// `AtSpiAx` path. Exists to exercise `Worker::process` without a display.
 	struct FakeWaylandBackend {
-		window:                 DesktopWindow,
-		overlap:                Option<DesktopWindow>,
-		window_present:         bool,
+		window:                  DesktopWindow,
+		overlap:                 Option<DesktopWindow>,
+		window_present:          bool,
+		ax_initialization_error: Option<DesktopError>,
 		/// An AX tree the app can rebuild; `None` answers every element as one
 		/// button.
-		tree:                   Option<Arc<Mutex<FakeTree>>>,
-		clicks:                 Arc<Mutex<Vec<String>>>,
-		modes:                  Arc<Mutex<Vec<DeliveryMode>>>,
-		layout:                 Arc<Mutex<Vec<DesktopDisplay>>>,
-		active_display:         Arc<Mutex<String>>,
-		captures:               Arc<Mutex<u8>>,
-		window_queries:         Arc<Mutex<u32>>,
+		tree:                    Option<Arc<Mutex<FakeTree>>>,
+		clicks:                  Arc<Mutex<Vec<String>>>,
+		modes:                   Arc<Mutex<Vec<DeliveryMode>>>,
+		layout:                  Arc<Mutex<Vec<DesktopDisplay>>>,
+		active_display:          Arc<Mutex<String>>,
+		captures:                Arc<Mutex<u8>>,
+		window_queries:          Arc<Mutex<u32>>,
 		/// `window_queries` as each `element_input` began.
-		queries_at_input:       Arc<Mutex<Vec<u32>>>,
+		queries_at_input:        Arc<Mutex<Vec<u32>>>,
 		/// Elements report no bounds.
-		no_bounds:              bool,
-		cancel_on_capabilities: Arc<Mutex<Option<CancellationSource>>>,
-		snapshot_error:         Arc<Mutex<bool>>,
-		cancel_on_snapshot:     Arc<Mutex<Option<CancellationSource>>>,
+		no_bounds:               bool,
+		cancel_on_capabilities:  Arc<Mutex<Option<CancellationSource>>>,
+		snapshot_error:          Arc<Mutex<bool>>,
+		cancel_on_snapshot:      Arc<Mutex<Option<CancellationSource>>>,
 		/// Cancelled once a key chord has gone out, as a cancel landing in the
 		/// shortcut's reply wait is.
-		cancel_after_chord:     Arc<Mutex<Option<CancellationSource>>>,
-		screen:                 Arc<Mutex<ScreenState>>,
+		cancel_after_chord:      Arc<Mutex<Option<CancellationSource>>>,
+		screen:                  Arc<Mutex<ScreenState>>,
 		/// Display selector each `screen_state` read was narrowed to.
-		screen_displays:        Arc<Mutex<Vec<Option<String>>>>,
+		screen_displays:         Arc<Mutex<Vec<Option<String>>>>,
 		/// Display-awake hold transitions, in order.
-		awake:                  Arc<Mutex<Vec<bool>>>,
+		awake:                   Arc<Mutex<Vec<bool>>>,
 		/// Unlock the session on the next layout read, i.e. after the frame.
-		unlock_on_layout:       Arc<Mutex<bool>>,
+		unlock_on_layout:        Arc<Mutex<bool>>,
 		/// Each window listing signals the sender, then blocks until the
 		/// receiver's sender drops.
-		hang_windows:           Option<(flume::Sender<()>, flume::Receiver<()>)>,
+		hang_windows:            Option<(flume::Sender<()>, flume::Receiver<()>)>,
 		/// Runs as each menu read is served.
-		on_menu_read:           Option<Box<dyn Fn() + Send>>,
+		on_menu_read:            Option<Box<dyn Fn() + Send>>,
 		/// Another process drawing the window, such as an Open panel's.
 		#[cfg(target_os = "macos")]
-		drawn_by:               Option<libc::pid_t>,
+		drawn_by:                Option<libc::pid_t>,
 		/// How many times the app's name was looked up.
 		#[cfg(target_os = "macos")]
-		name_lookups:           Arc<Mutex<u32>>,
+		name_lookups:            Arc<Mutex<u32>>,
 		/// How many times the process drawing a window was looked up.
 		#[cfg(target_os = "macos")]
-		input_lookups:          Arc<Mutex<u32>>,
+		input_lookups:           Arc<Mutex<u32>>,
 		/// Every click lands on a control whose menu would take the keyboard.
-		menu_control:           bool,
+		menu_control:            bool,
 		/// What a drag is made as instead of input; `None` posts it.
-		drag_selection:         Option<AxTextSelection>,
+		drag_selection:          Option<AxTextSelection>,
 	}
 
 	impl FakeWaylandBackend {
@@ -3003,18 +3190,20 @@ mod capture_tests {
 		fn new() -> Self {
 			Self {
 				window: DesktopWindow {
-					id:      WAYLAND_ID.to_string(),
-					title:   "Obsidian".to_string(),
-					app:     "obsidian".to_string(),
-					pid:     Some(1234),
-					x:       0,
-					y:       0,
-					width:   64,
-					height:  48,
-					focused: true,
+					minimized: None,
+					id:        WAYLAND_ID.to_string(),
+					title:     "Obsidian".to_string(),
+					app:       "obsidian".to_string(),
+					pid:       Some(1234),
+					x:         0,
+					y:         0,
+					width:     64,
+					height:    48,
+					focused:   true,
 				},
 				overlap: None,
 				window_present: true,
+				ax_initialization_error: None,
 				tree: None,
 				menu_control: false,
 				clicks: Arc::new(Mutex::new(Vec::new())),
@@ -3477,6 +3666,13 @@ mod capture_tests {
 		fn ax(&mut self) -> Option<&mut dyn AxBackend> {
 			Some(self)
 		}
+
+		fn ax_result(&mut self) -> CoreResult<&mut dyn AxBackend> {
+			if let Some(error) = &self.ax_initialization_error {
+				return Err(error.clone());
+			}
+			Ok(self)
+		}
 	}
 
 	/// A worker that holds the ownership test lock for its test: input it is
@@ -3506,6 +3702,26 @@ mod capture_tests {
 			_ownership: crate::desktop::control::OWNERSHIP_TEST.lock(),
 			worker:     unlocked_worker(backend),
 		}
+	}
+
+	#[test]
+	fn ax_initialization_error_reaches_worker_requests() {
+		let mut backend = FakeWaylandBackend::new();
+		backend.ax_initialization_error =
+			Some(DesktopError::ax_failed("AT-SPI selected session: connection refused"));
+		let mut worker = worker_with(backend);
+		let snapshot_error = worker
+			.snapshot(&Target::Window(WAYLAND_ID.into()), &AxSnapshotOptions::default())
+			.err()
+			.expect("snapshot must report initialization failure");
+		assert_eq!(snapshot_error.code, error::ErrorCode::AxFailed);
+		assert_eq!(snapshot_error.message, "AT-SPI selected session: connection refused");
+		let direct_error = worker
+			.ax()
+			.err()
+			.expect("direct AX request must report initialization failure");
+		assert_eq!(direct_error.code, snapshot_error.code);
+		assert_eq!(direct_error.message, snapshot_error.message);
 	}
 
 	/// A worker for tests that send it no input. Served ones time their calls,
@@ -3739,6 +3955,7 @@ mod capture_tests {
 			DisplaySelector::Active,
 			Arc::default(),
 			HUNG_CALL_TIMEOUT,
+			DesktopSessionOptions::default(),
 		);
 		let display_awake = Arc::clone(&core.display_awake);
 		let (tx, rx) = flume::unbounded();
@@ -5032,8 +5249,11 @@ mod capture_tests {
 		let token = CancellationSource::default().token();
 		worker.dispatch(capture_request(Target::Window(WAYLAND_ID.to_string())), &token);
 		worker.listener.record_for_test(1234, Instant::now());
-		let raise =
-			|id: &str| Request::RaiseWindow { id: id.to_string(), reply: flume::unbounded().0 };
+		let raise = |id: &str| Request::RaiseWindow {
+			id:              id.to_string(),
+			expected_active: None,
+			reply:           flume::unbounded().0,
+		};
 		// The off-Space window belongs to the app the user is typing in.
 		let listed = *queries.lock();
 		let error = worker
@@ -5617,7 +5837,11 @@ mod capture_tests {
 			typing(&Target::Desktop, None),
 			holding(&Target::Desktop, Some(false)),
 			clicking(&display, None),
-			Request::RaiseWindow { id: "42".to_string(), reply: reply() },
+			Request::RaiseWindow {
+				id:              "42".to_string(),
+				expected_active: None,
+				reply:           reply(),
+			},
 			perform("raise"),
 			perform("AXRaise"),
 			open(Some(true)),
@@ -5668,7 +5892,11 @@ mod capture_tests {
 			typing(&window, None),
 			element(None),
 			typing(&Target::parse("display:screen-1"), None),
-			Request::RaiseWindow { id: "42".to_string(), reply: reply() },
+			Request::RaiseWindow {
+				id:              "42".to_string(),
+				expected_active: None,
+				reply:           reply(),
+			},
 		] {
 			assert!(!other.takes_over_a_window());
 		}

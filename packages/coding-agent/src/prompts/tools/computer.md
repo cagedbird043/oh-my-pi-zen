@@ -2,6 +2,13 @@ Control the host desktop from JavaScript or Python Eval with the global `compute
 
 <instruction>
 - Direct helpers each run one approved call in the persistent desktop session and return real structured values; screenshots auto-display as Eval images.
+- KDE Plasma Wayland: `const desk = await computer.agentDesktop()` (Python: `desk = await computer.agentDesktop()`) starts a hidden, isolated 1600×1000 desktop and returns the same helper surface (`windows`, `window`, screenshots/input/AX, `apps`, `clipboard`, `run`, `capabilities`, `close`). Repeated calls return the same facade; after closure they start a new empty session. `desk.run` binds its `desktop` to that isolated session; handles and clipboard never cross desktops. `computer.capabilities().agentDesktop` reports availability.
+- Closing/restarting the agent desktop invalidates its old handles (`已失效`), even if AX ref names repeat. You MUST resolve new window/element handles after reopening.
+- You SHOULD use the agent desktop when the user must not be disturbed or you need fresh application windows. You MAY start it yourself; the user can inspect/hide it with `/desk`, prestart it hidden with `/desk start`, or destroy it with `/desk stop`. `desk.close()` destroys only that desktop. Isolation does not authorize external side effects.
+- Agent desktops MUST NOT open browsers; use the browser tool for web tasks.
+- Host-focus restrictions and human confirmation for `control.acquire` apply to the host desktop. On the isolated agent desktop, raises, takeover input and control grants affect only its own focus/pointer; they do not require host-control approval.
+- KDE Plasma Wayland uses backend `"kwin"`: window listings include minimized windows (`minimized?: boolean`); per-window screenshots include decorations but omit shadows. Minimized-window capture fails: raise that window before capturing, only on the isolated desktop unless the user authorized host activation. KWin's compositor input needs no portal authorization dialog; window input with `{takeover: true}` can temporarily take focus, while AX avoids it. Root input on the agent desktop controls only its own pointer and focus.
+- Agent-desktop `apps.list()` scopes `running`/`pid` to its own windows; host apps and windowless background services are not counted as running.
 - Desktop root: `displays`, `windows({app?, title?})`, `screenshot`, `zoom({x, y, width, height}, {silent?})`,
   `click`, `doubleClick`, `move`, `drag`, `scroll`, `type`, `press`, `elementAt(x, y)`, `focusedElement`,
   `clipboard.read`/`clipboard.write`, `capabilities`, `close`.
@@ -22,7 +29,7 @@ Control the host desktop from JavaScript or Python Eval with the global `compute
   `await file.doubleClick(); const doc = await computer.window({ app: "Preview", title: "report.pdf", wait: 3000 }); await doc.ax();`.
 - `windows()` returns plain records `{id, app, title, pid?, x, y, width, height, focused}`, not handles: no `bounds`, no handle methods.
   Python: dicts (`w["x"]`, `w.get("pid")`). Handle: `await computer.window(w["id"])`.
-- `windows()` lists at most 48 matches. On macOS `window(id | {app})` searches every window; on Linux and Windows it searches the first 48.
+- `windows()` lists at most 48 matches. On macOS and KWin, `window(id | {app})` searches every window; other Linux and Windows backends search the first 48.
   - On macOS without Screen Recording, other apps' window titles are empty: resolve by `app` or id and read `ax()`.
   - A failed `title` filter does not prove the window is absent.
 - `await win.observe({silent?, all?, maxDepth?})` returns/emits the full screenshot and AX tree together
@@ -48,7 +55,7 @@ Control the host desktop from JavaScript or Python Eval with the global `compute
 - `computer.apps.list({query?, runningOnly?})` discovers native application IDs, paths and running PIDs.
 - `computer.apps.open(idOrNameOrNativeAppPath, {activate?})` launches an exact ID/path or unique exact name.
   - On macOS it launches or reopens only when needed, behind the user's app,
-    and returns the app with `window`, its frontmost `ComputerWindow` (null if none appeared within 3 s); other platforms return `window: null`.
+    and returns the app with `window`, its frontmost `ComputerWindow` (null if none appeared within 3 s); KDE Plasma host and agent desktops also return a matching `window` within 3 s; other platforms return `window: null`.
   - It requires exec approval and cannot run with `read_only: true`.
   - Deliberate activation defaults off, and an app may still activate itself.
   - On macOS `computer.apps.open(fileFolderOrUrl, {app?, reveal?})` opens a document, folder or URL
@@ -60,7 +67,7 @@ Control the host desktop from JavaScript or Python Eval with the global `compute
 - `holdKeys(keys, {duration, takeover?})` and `holdMouse(x, y, {button?, duration, keys?, takeover?})`
   hold input for 0–100 seconds and release it on every exit.
   `drag(points, {keys?, modifiers?, takeover?})` supports Space-drag and other held-key gestures. Do not invent cross-call key-down/button-down state.
-- `computer.control.acquire({reason})` requires live human confirmation for task-scoped control;
+- On the host desktop, `computer.control.acquire({reason})` requires live human confirmation for task-scoped control;
   window input needs no grant (it runs in the background with or without acquired control).
   - It returns `{active: true}` or `{active: false, reason}`:
     - `"denied"`: the user declined or the confirmation was cancelled.
@@ -177,7 +184,7 @@ await win.click(120, 48, button="right")
   - on macOS `perform("AXOpen")`, which can bring an Open panel's app forward
   - on macOS every call that opens a menu or names a `menu` item (right-click, Control-click, `perform("AXShowMenu")`, `menu:`,
     `press()` or a click, hold or drag on a popup button or menu button, `setValue` on a popup button), since an open menu takes the user's keyboard
-- `raise()` and `apps.open(…, { activate: true })` bring the app forward and take the user's keyboard.
+- On the host desktop, `raise()` and `apps.open(…, { activate: true })` bring the app forward and take the user's keyboard.
   NEVER call them to make input work; launching, reopening and window input work in the background.
 - macOS background routes cover left-button drags and `holdMouse` that start on a slider, scroll bar, splitter or stepper,
   middle-button drags, modified clicks, right-clicks and scrolls.
@@ -207,8 +214,8 @@ await win.click(120, 48, button="right")
   - Read that window again (`win.ax()`, `win.observe()` or `win.screenshot()`) and continue the task from what it shows.
 - After changing the UI, verify the expected state with fresh AX evidence or a screenshot.
   In a run, use `wait(predicate, {timeout, interval})` for a specific state rather than assuming a fixed sleep means success.
-- Desktop-root pointer helpers (`computer.click`, `computer.move`, …) drive the user's real pointer; act through window handles.
-- Wayland: per-window native input and `.raise()` are unavailable; use AX, or desktop input after focusing the target yourself.
+- Host-desktop root pointer helpers (`computer.click`, `computer.move`, …) drive the user's real pointer; act through window handles or use the isolated agent desktop.
+- Other Wayland backends: per-window native input and `.raise()` are unavailable; use AX, or desktop input after focusing the target yourself.
 - macOS `screenLocked` (in `capabilities()`, a screenshot result, or a run's leading `Note:`):
   - A display capture shows the lock screen and a window capture that window's last frame.
   - Keystrokes, takeover and AX fail until someone unlocks, while background clicks still reach the app.

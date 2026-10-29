@@ -62,15 +62,24 @@ interface ComputerRunParams {
 	args?: unknown[];
 	read_only?: boolean;
 	timeout?: number;
+	agentDesktop?: boolean;
+	agentDesktopGeneration?: string;
 }
 
 interface ComputerCallParams {
 	action: "call";
 	chain: ComputerCallStep[];
 	timeout?: number;
+	agentDesktop?: boolean;
+	agentDesktopGeneration?: string;
 }
 
-type ComputerParams = ComputerRunParams | ComputerCallParams | { action: "capabilities" } | { action: "close" };
+type ComputerParams =
+	| ComputerRunParams
+	| ComputerCallParams
+	| { action: "capabilities"; agentDesktop?: boolean; agentDesktopGeneration?: string }
+	| { action: "close"; agentDesktop?: boolean; agentDesktopGeneration?: string }
+	| { action: "agent-desktop" };
 type ComputerParamsSchema = Type<ComputerParams>;
 
 const getComputerParamsSchema: () => ComputerParamsSchema = once(() =>
@@ -85,6 +94,8 @@ const getComputerParamsSchema: () => ComputerParamsSchema = once(() =>
 			"true = desktop inspection only: screenshots and ax reads allowed, desktop input/mutation blocked",
 		),
 		"timeout?": type("number").describe("run budget in seconds"),
+		"agentDesktop?": type("boolean"),
+		"agentDesktopGeneration?": type("string"),
 		"+": "reject",
 	})
 		.or({
@@ -93,10 +104,23 @@ const getComputerParamsSchema: () => ComputerParamsSchema = once(() =>
 				.array()
 				.describe("desktop helper invocation with at most one window/element handle hop"),
 			"timeout?": type("number").describe("run budget in seconds"),
+			"agentDesktop?": type("boolean"),
+			"agentDesktopGeneration?": type("string"),
 			"+": "reject",
 		})
-		.or({ action: "'capabilities'", "+": "reject" })
-		.or({ action: "'close'", "+": "reject" }),
+		.or({
+			action: "'capabilities'",
+			"agentDesktop?": type("boolean"),
+			"agentDesktopGeneration?": type("string"),
+			"+": "reject",
+		})
+		.or({
+			action: "'close'",
+			"agentDesktop?": type("boolean"),
+			"agentDesktopGeneration?": type("string"),
+			"+": "reject",
+		})
+		.or({ action: "'agent-desktop'", "+": "reject" }),
 );
 
 interface ComputerPreludeDetails {
@@ -179,6 +203,7 @@ function describeComputerCall(parameters: unknown): string | undefined {
 			return `run(${parsed.fn !== undefined ? "fn" : (parsed.code?.trim().split("\n", 1)[0] ?? "")})`;
 		case "capabilities":
 		case "close":
+		case "agent-desktop":
 			return parsed.action;
 	}
 }
@@ -192,11 +217,28 @@ async function invokeComputer(
 	throwIfAborted(context.signal);
 
 	switch (params.action) {
+		case "agent-desktop": {
+			if (!controller.agentDesktop) throw new ToolError("Agent desktop is unavailable");
+			await controller.agentDesktop("start");
+			const capabilities = await controller.capabilities(
+				{ ...buildComputerSnapshot(session, true), agentDesktop: true },
+				context.signal,
+			);
+			if (!capabilities?.agentDesktopGeneration) throw new ToolError("Agent desktop did not publish its generation");
+			return { content: [], details: { generation: capabilities.agentDesktopGeneration } };
+		}
 		case "run":
 		case "call":
 			return await runComputer(session, controller, params, context);
 		case "capabilities": {
-			const capabilities = await controller.capabilities(buildComputerSnapshot(session, true), context.signal);
+			const capabilities = await controller.capabilities(
+				{
+					...buildComputerSnapshot(session, true),
+					agentDesktop: params.agentDesktop,
+					agentDesktopGeneration: params.agentDesktopGeneration,
+				},
+				context.signal,
+			);
 			throwIfAborted(context.signal);
 			return {
 				content: [
@@ -209,6 +251,10 @@ async function invokeComputer(
 			};
 		}
 		case "close":
+			if (params.agentDesktop) {
+				await controller.agentDesktop?.("stop", params.agentDesktopGeneration);
+				return { content: [] };
+			}
 			await controller.reset();
 			throwIfAborted(context.signal);
 			return { content: [{ type: "text", text: "Closed computer session" }] };
@@ -266,6 +312,8 @@ async function runComputer(
 	const readOnly = params.action === "call" ? isReadOnlyComputerCall(params.chain) : (params.read_only ?? false);
 	const timeoutSeconds = clampTimeout("computer", params.timeout, cfgToolsMaxTimeout.get(session.settings));
 	const snapshot = buildComputerSnapshot(session, readOnly);
+	snapshot.agentDesktop = params.agentDesktop;
+	snapshot.agentDesktopGeneration = params.agentDesktopGeneration;
 	const run = await controller.run(code, timeoutSeconds * 1000, snapshot, signal, context.context);
 	throwIfAborted(signal);
 

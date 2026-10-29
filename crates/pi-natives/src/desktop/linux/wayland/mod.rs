@@ -1,6 +1,6 @@
 #[cfg(feature = "wayland-pipewire")]
 mod capture;
-mod libei;
+pub(in crate::desktop::linux) mod libei;
 mod portal;
 mod xkb;
 
@@ -25,8 +25,8 @@ use crate::desktop::{
 	},
 };
 
-/// Logical monitor geometry from the portal ScreenCast stream, paired with the
-/// physical PipeWire buffer size.
+/// Logical monitor geometry from the portal `ScreenCast` stream, paired with
+/// the physical `PipeWire` buffer size.
 ///
 /// The captured buffer is in physical pixels, while libei and AT-SPI address
 /// the monitor in the compositor's logical coordinate space. On a scaled
@@ -263,6 +263,10 @@ impl WaylandBackend {
 impl Backend for WaylandBackend {
 	fn capabilities(&mut self) -> DesktopCapabilities {
 		let input_unavailable = self.input.is_none() && self.input_unavailable().is_some();
+		#[cfg(feature = "wayland-pipewire")]
+		let capture_available = capture::available();
+		#[cfg(not(feature = "wayland-pipewire"))]
+		let capture_available = false;
 		let input_permission = if self.input.is_some() {
 			"granted"
 		} else if input_unavailable {
@@ -273,10 +277,7 @@ impl Backend for WaylandBackend {
 		DesktopCapabilities {
 			backend: "wayland".to_string(),
 			display_server: Some("wayland".to_string()),
-			// The PipeWire screencast path is compiled in only under the
-			// wayland-pipewire feature; without it capture() hard-errors, so the
-			// capability report must not advertise a capture the binary cannot do.
-			capture: cfg!(feature = "wayland-pipewire"),
+			capture: capture_available,
 			input: !input_unavailable,
 			ax: self.ax.is_some(),
 			background_window_input: false,
@@ -288,7 +289,7 @@ impl Backend for WaylandBackend {
 			secure_input_app: None,
 			spaces: false,
 			global_escape: false,
-			capture_permission: if cfg!(feature = "wayland-pipewire") {
+			capture_permission: if capture_available {
 				"prompt-or-granted".to_string()
 			} else {
 				"unavailable".to_string()
@@ -854,6 +855,7 @@ mod tests {
 	fn portal_window(x: i32, y: i32, width: u32, height: u32, position_known: bool) -> AtSpiWindow {
 		AtSpiWindow {
 			window: DesktopWindow {
+				minimized: None,
 				id: "w".into(),
 				title: "T".into(),
 				app: "A".into(),
