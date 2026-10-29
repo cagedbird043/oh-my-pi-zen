@@ -532,6 +532,15 @@ export const BUILTIN_SESSION_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 		},
 	},
 	{
+		name: "redraw",
+		icon: "redo",
+		description: "Rebuild terminal scrollback from the transcript (restores missing rows)",
+		handleTui: (_command, runtime) => {
+			runtime.ctx.shell.host?.replayHistory();
+			clearSubmittedText(runtime);
+		},
+	},
+	{
 		name: "tools",
 		icon: "tools",
 		description: "Show tools currently visible to the agent",
