@@ -28,7 +28,8 @@ use crate::desktop::{
 };
 
 const DEVICE_DISCOVERY_DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
-const DRAG_STEP_DELAY: Duration = Duration::from_millis(8);
+const DRAG_STEP_DELAY: Duration = Duration::from_millis(16);
+const DRAG_DWELL: Duration = Duration::from_millis(150);
 /// `ei_text.utf8` carries at most 254 bytes (255 with the terminating NUL).
 const EI_TEXT_UTF8_MAX: usize = 254;
 
@@ -59,7 +60,7 @@ struct PortalSession {
 	session: RemoteDesktopSession,
 }
 
-pub(super) struct Libei {
+pub(in crate::desktop::linux) struct Libei {
 	context:        ei::Context,
 	devices:        Vec<EiDevice>,
 	connection:     Option<reis::event::Connection>,
@@ -68,6 +69,11 @@ pub(super) struct Libei {
 	events:         Option<EiConvertEventStream>,
 	disconnected:   bool,
 	portal_session: Option<PortalSession>,
+}
+
+pub(in crate::desktop::linux) struct PreparedText {
+	keyboard: usize,
+	plan:     TypingPlan,
 }
 
 #[allow(
@@ -113,18 +119,29 @@ fn pace_drag(
 	path: &[(f64, f64)],
 	mut send_motion: impl FnMut(f64, f64) -> CoreResult<()>,
 ) -> CoreResult<()> {
-	for &(x, y) in path.iter().skip(1) {
-		control::wait(DRAG_STEP_DELAY)?;
-		send_motion(x, y)?;
+	control::wait(DRAG_DWELL)?;
+	for segment in path.windows(2) {
+		let (start_x, start_y) = segment[0];
+		let (end_x, end_y) = segment[1];
+		let steps = ((end_x - start_x).hypot(end_y - start_y) / 8.0)
+			.ceil()
+			.max(1.0) as usize;
+		for step in 1..=steps {
+			control::wait(DRAG_STEP_DELAY)?;
+			let fraction = step as f64 / steps as f64;
+			send_motion(
+				(end_x - start_x).mul_add(fraction, start_x),
+				(end_y - start_y).mul_add(fraction, start_y),
+			)?;
+		}
 	}
-	// Keep the final motion observable before the button release, which
-	// always follows: a cancel now stops the next call.
-	control::settle(DRAG_STEP_DELAY);
+	// Allow the target to negotiate the Wayland offer before releasing.
+	control::settle(DRAG_DWELL);
 	Ok(())
 }
 
 impl Libei {
-	pub(super) const fn disconnected(&self) -> bool {
+	pub(in crate::desktop::linux) const fn disconnected(&self) -> bool {
 		self.disconnected
 	}
 
@@ -139,6 +156,23 @@ impl Libei {
 			},
 			Err(err) => return Err(DesktopError::permission_denied(format!("LIBEI_SOCKET: {err}"))),
 		};
+		Self::from_context(context, portal_session, targets)
+	}
+
+	/// `KWin` supplies its own EIS socket; never consult `LIBEI_SOCKET` or
+	/// portals.
+	pub(in crate::desktop::linux) fn from_fd(fd: std::os::fd::OwnedFd) -> CoreResult<Self> {
+		let context = ei::Context::new(UnixStream::from(fd))
+			.map_err(|error| DesktopError::input_failed(format!("KWin EIS socket: {error}")))?;
+		Self::from_context(context, None, DiscoveryTargets::ALL)
+	}
+
+	fn from_context(
+		context: ei::Context,
+		portal_session: Option<PortalSession>,
+		targets: DiscoveryTargets,
+	) -> CoreResult<Self> {
+		let runtime = super::portal::portal_runtime()?;
 		let mut backend = Self {
 			context,
 			devices: Vec::new(),
@@ -368,7 +402,7 @@ impl Libei {
 			EiEvent::Disconnected(event) => {
 				self.devices.clear();
 				self.disconnected = true;
-				return Err(DesktopError::input_failed(format!(
+				return Err(DesktopError::input_preflight_failed(format!(
 					"libei disconnected: {}",
 					event.explanation.as_deref().unwrap_or("no reason given")
 				)));
@@ -391,16 +425,20 @@ impl Libei {
 					Ok(Some(Ok(event))) => self.handle_event(event)?,
 					Ok(Some(Err(err))) => {
 						self.disconnected = true;
-						return Err(DesktopError::input_failed(format!("libei device state: {err}")));
+						return Err(DesktopError::input_preflight_failed(format!(
+							"libei device state: {err}"
+						)));
 					},
 					Ok(None) => {
 						self.disconnected = true;
-						return Err(DesktopError::input_failed("libei disconnected"));
+						return Err(DesktopError::input_preflight_failed("libei disconnected"));
 					},
 					Err(_) => return Ok(()),
 				}
 			}
-			Err(DesktopError::input_failed("libei device state did not settle; no input was sent"))
+			Err(DesktopError::input_preflight_failed(
+				"libei device state did not settle; no input was sent",
+			))
 		});
 		self.events = Some(events);
 		result
@@ -447,7 +485,7 @@ impl Libei {
 		Ok(())
 	}
 
-	pub(super) fn pointer(&mut self, event: PointerEvent) -> CoreResult<()> {
+	pub(in crate::desktop::linux) fn pointer(&mut self, event: PointerEvent) -> CoreResult<()> {
 		self.refresh_devices()?;
 		// Preflight the complete gesture, before moving or holding anything.
 		// In particular, an invalid later drag point must not leave a button
@@ -671,6 +709,9 @@ impl Libei {
 		})();
 		let released = control::cleanup(|| {
 			if button_held && let (Some(code), Some(interface)) = (button, &button_interface) {
+				if let Ok(now) = Self::timestamp() {
+					time = now.max(time);
+				}
 				interface.button(code, ei::button::ButtonState::Released);
 				device.device.device().frame(serial, time);
 				time = time.saturating_add(1);
@@ -687,18 +728,31 @@ impl Libei {
 
 	/// Presses `keys` and releases them. A shortcut fires on its last press,
 	/// so a cancel once every key is down no longer fails the call.
-	pub(super) fn key_chord(&mut self, keys: &[KeyName]) -> CoreResult<()> {
-		self.with_keys(keys, || Ok(()))
+	pub(in crate::desktop::linux) fn key_chord(&mut self, keys: &[KeyName]) -> CoreResult<()> {
+		self.with_keys(keys, || Ok(()), || Ok(()))
 	}
 
-	pub(super) fn hold_keys(&mut self, keys: &[KeyName], duration: Duration) -> CoreResult<()> {
-		self.with_keys(keys, || control::wait(duration))
+	pub(in crate::desktop::linux) fn key_chord_checked(
+		&mut self,
+		keys: &[KeyName],
+		check_target: impl FnMut() -> CoreResult<()>,
+	) -> CoreResult<()> {
+		self.with_keys(keys, || Ok(()), check_target)
+	}
+
+	pub(in crate::desktop::linux) fn hold_keys(
+		&mut self,
+		keys: &[KeyName],
+		duration: Duration,
+	) -> CoreResult<()> {
+		self.with_keys(keys, || control::wait(duration), || Ok(()))
 	}
 
 	fn with_keys(
 		&mut self,
 		keys: &[KeyName],
 		hold: impl FnOnce() -> CoreResult<()>,
+		mut check_target: impl FnMut() -> CoreResult<()>,
 	) -> CoreResult<()> {
 		self.refresh_devices()?;
 		let device = self
@@ -722,6 +776,7 @@ impl Libei {
 		let result = (|| {
 			for &code in &codes {
 				control::check()?;
+				check_target()?;
 				held += 1;
 				Self::send_key(device, &interface, code, true, serial, &mut time)?;
 			}
@@ -736,10 +791,21 @@ impl Libei {
 			}
 		});
 		let flushed = self.flush();
-		result.and(flushed)
+		result.and(flushed).map_err(|error| {
+			if held > 0 && error.code == crate::desktop::error::ErrorCode::BackgroundUnavailable {
+				DesktopError::input_failed(format!(
+					"EIS chord partially delivered; do not replay: {error}"
+				))
+			} else {
+				error
+			}
+		})
 	}
 
-	pub(super) fn type_text(&mut self, text: &str) -> CoreResult<()> {
+	pub(in crate::desktop::linux) fn prepare_text(
+		&mut self,
+		text: &str,
+	) -> CoreResult<PreparedText> {
 		self.refresh_devices()?;
 		let keyboard_index = self
 			.devices
@@ -757,6 +823,34 @@ impl Libei {
 				&& device.device.has_capability(DeviceCapability::Text)
 		});
 		let plan = plan_typing(self.devices[keyboard_index].layout.as_mut(), text, text_index)?;
+		Ok(PreparedText { keyboard: keyboard_index, plan })
+	}
+
+	pub(super) fn type_text(&mut self, text: &str) -> CoreResult<()> {
+		let prepared = self.prepare_text(text)?;
+		self.type_prepared_text(prepared)
+	}
+
+	pub(in crate::desktop::linux) fn type_prepared_text(
+		&self,
+		prepared: PreparedText,
+	) -> CoreResult<()> {
+		self.type_prepared_text_checked(prepared, || Ok(()))
+	}
+
+	pub(in crate::desktop::linux) fn type_prepared_text_checked(
+		&self,
+		prepared: PreparedText,
+		mut check_target: impl FnMut() -> CoreResult<()>,
+	) -> CoreResult<()> {
+		let PreparedText { keyboard: keyboard_index, plan } = prepared;
+		let keyboard = self
+			.devices
+			.get(keyboard_index)
+			.filter(|device| device.resumed)
+			.ok_or_else(|| {
+				DesktopError::input_failed("libei keyboard disappeared after text preparation")
+			})?;
 		let serial = self
 			.connection
 			.as_ref()
@@ -765,12 +859,29 @@ impl Libei {
 		let strokes = match plan {
 			TypingPlan::Keys(strokes) => strokes,
 			TypingPlan::Text { device, runs } => {
-				let device = &self.devices[device];
+				let device = self
+					.devices
+					.get(device)
+					.filter(|device| device.resumed && device.device.seat() == keyboard.device.seat())
+					.ok_or_else(|| {
+						DesktopError::input_failed("libei text device disappeared after text preparation")
+					})?;
 				let interface = device
 					.device
 					.interface::<ei::Text>()
 					.ok_or_else(|| DesktopError::input_failed("libei text interface is unavailable"))?;
-				for run in runs {
+				for (index, run) in runs.into_iter().enumerate() {
+					check_target().map_err(|error| {
+						if index > 0
+							&& error.code == crate::desktop::error::ErrorCode::BackgroundUnavailable
+						{
+							DesktopError::input_failed(format!(
+								"EIS text partially delivered; do not replay: {error}"
+							))
+						} else {
+							error
+						}
+					})?;
 					control::check()?;
 					interface.utf8(&run);
 					device.device.device().frame(serial, time);
@@ -780,12 +891,22 @@ impl Libei {
 				return Ok(());
 			},
 		};
-		let device = &self.devices[keyboard_index];
+		let device = keyboard;
 		let interface = device
 			.device
 			.interface::<ei::Keyboard>()
 			.ok_or_else(|| DesktopError::input_failed("libei keyboard interface is unavailable"))?;
+		let mut delivered = false;
 		for stroke in strokes {
+			check_target().map_err(|error| {
+				if delivered && error.code == crate::desktop::error::ErrorCode::BackgroundUnavailable {
+					DesktopError::input_failed(format!(
+						"EIS text partially delivered; do not replay: {error}"
+					))
+				} else {
+					error
+				}
+			})?;
 			let mut held = 0;
 			let mut key_held = false;
 			let result = (|| {
@@ -812,6 +933,7 @@ impl Libei {
 				))
 			});
 			result.and(flushed)?;
+			delivered = true;
 		}
 		Ok(())
 	}
@@ -1119,7 +1241,13 @@ mod tests {
 			Ok(())
 		})
 		.unwrap();
-		assert_eq!(received, [(600.0, 411.0), (750.0, 422.0)]);
+		assert_eq!(received.last(), Some(&(750.0, 422.0)));
+		assert!(received.len() > 2);
+		assert!(
+			received
+				.windows(2)
+				.all(|pair| (pair[1].0 - pair[0].0).hypot(pair[1].1 - pair[0].1) <= 8.0)
+		);
 		assert!(previous.elapsed() >= DRAG_STEP_DELAY, "release must not overtake the final motion");
 	}
 

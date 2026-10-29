@@ -25,22 +25,24 @@ pub struct DesktopDisplay {
 #[derive(Debug, Clone)]
 pub struct DesktopWindow {
 	/// Backend-defined opaque window id, valid as a capture target while the
-	/// window lives. Numeric on X11/Win32/macOS; a composite AT-SPI string on
-	/// Wayland (e.g. `atspi::1.31:/org/a11y/atspi/accessible/1`). Never parse
-	/// it.
-	pub id:      String,
+	/// window lives. Numeric on X11/Win32/macOS; `kwin:{uuid}` on `KWin`;
+	/// otherwise a composite AT-SPI string on Wayland (e.g.
+	/// `atspi::1.31:/org/a11y/atspi/accessible/1`). Never parse it.
+	pub id:        String,
 	/// Window title; may be empty for untitled windows.
-	pub title:   String,
+	pub title:     String,
 	/// Owning application name.
-	pub app:     String,
+	pub app:       String,
 	/// Owning process id when the platform exposes it.
-	pub pid:     Option<u32>,
-	pub x:       i32,
-	pub y:       i32,
-	pub width:   u32,
-	pub height:  u32,
+	pub pid:       Option<u32>,
+	pub x:         i32,
+	pub y:         i32,
+	pub width:     u32,
+	pub height:    u32,
 	/// Whether the window currently holds input focus.
-	pub focused: bool,
+	pub focused:   bool,
+	/// Whether `KWin` has minimized this window; absent on other backends.
+	pub minimized: Option<bool>,
 }
 
 #[napi(object)]
@@ -166,13 +168,18 @@ impl ScreenState {
 #[napi(object)]
 #[derive(Debug, Clone, Default)]
 pub struct DesktopSessionOptions {
-	pub display:         Option<String>,
+	pub display:          Option<String>,
+	/// Explicit `KWin` session bus; connection errors never fall back to the
+	/// host.
+	pub kwin_bus_address: Option<String>,
+	/// Wayland socket belonging to the selected `KWin` session.
+	pub wayland_display:  Option<String>,
 	/// Sessions created with the same key share one physical-Escape stop
 	/// count, which `desktopEscapeStops` reads after they close.
-	pub escape_stop_key: Option<String>,
+	pub escape_stop_key:  Option<String>,
 	/// The registry id of the agent this session acts for, named to other
 	/// sessions that wait for its input/focus control.
-	pub agent_id:        Option<String>,
+	pub agent_id:         Option<String>,
 }
 
 #[napi(object)]
@@ -237,8 +244,8 @@ pub struct HoldOptions {
 
 /// Where focus ended after a takeover input call.
 ///
-/// Input calls resolve to it on macOS and Windows when they took over, as
-/// the window server reports it; other backends and background delivery
+/// Input calls resolve to it on macOS, Windows, or `KWin` when they took over,
+/// as does `apps.open` on Windows when it handed focus back. Background calls
 /// resolve to `null`.
 #[napi(object)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -549,15 +556,16 @@ mod tests {
 		assert!(matches!(DisplaySelector::parse(Some("active".into())), DisplaySelector::Active));
 		let displays = vec![display("left", -100, true), display("right", 0, false)];
 		let window = DesktopWindow {
-			id:      "window".into(),
-			title:   String::new(),
-			app:     String::new(),
-			pid:     None,
-			x:       -10,
-			y:       10,
-			width:   70,
-			height:  50,
-			focused: true,
+			minimized: None,
+			id:        "window".into(),
+			title:     String::new(),
+			app:       String::new(),
+			pid:       None,
+			x:         -10,
+			y:         10,
+			width:     70,
+			height:    50,
+			focused:   true,
 		};
 		let selected = DisplaySelector::Active
 			.select(displays.clone(), Some(&window))

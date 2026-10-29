@@ -1,4 +1,4 @@
-import type { DesktopRosterWindow, DesktopSession, DesktopSessionOptions } from "./index.js";
+import type { DesktopRosterWindow, DesktopSession, DesktopSessionOptions, SessionBusBridge } from "./index.js";
 
 /** Construct a desktop session, loading the native addon on first use. */
 export declare function createDesktopSession(options: DesktopSessionOptions): DesktopSession;
@@ -17,3 +17,6 @@ export declare function closeDesktopEventTaps(): void;
  * loading the native addon on first use. Empty off macOS.
  */
 export declare function desktopWindowRoster(): DesktopRosterWindow[];
+
+/** Older official addons lack the bridge and return undefined. */
+export declare function startSessionBusBridge(privateAddress: string, names: readonly string[]): SessionBusBridge | undefined;
