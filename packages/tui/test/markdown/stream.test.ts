@@ -103,6 +103,119 @@ describe("stable prefix", () => {
 	});
 });
 
+/** Rows already handed to scrollback must still match, even on single-character appends. */
+function appendFrames(document: string, width = 80, options = stream): readonly string[] {
+	const final = renderMarkdown(document, width, { ...options, stream: false });
+	let published: string[] = [];
+	for (let end = 1; end <= document.length; end++) {
+		const frame = renderMarkdownFrame(document.slice(0, end), width, options);
+		expect(frame.stable).toBeLessThanOrEqual(frame.rows.length);
+		expect(frame.rows.slice(0, published.length)).toEqual(published);
+		expect(frame.rows.slice(0, frame.stable)).toEqual(final.slice(0, frame.stable));
+		if (frame.stable > published.length) published = frame.rows.slice(0, frame.stable);
+	}
+	return published;
+}
+
+describe("line settlement", () => {
+	it("settles wrapped soft lines after a heading", () => {
+		const prose = Array.from({ length: 8 }, (_, i) => `LINE-${i + 1}: **粗体** and \`代码\` stay paired.`);
+		const published = plainRows(appendFrames(`# Title\n${prose.join("\n")}`, 24));
+		expect(published.join("\n")).toContain("LINE-6:");
+		expect(published.join("\n")).not.toContain("LINE-7:");
+	});
+
+	it("settles ended code lines, preserving surrounding prose and omitting the synthetic border", () => {
+		const source =
+			"first prose\nsecond prose\n```ts\nconst literal = /\\(/;\nconst raw = String.raw`\\[`;\nconst end = 3;\nconst pending =";
+		const published = plainRows(appendFrames(source));
+		expect(published.join("\n")).toContain("second prose");
+		expect(published.join("\n")).toContain("const end = 3;");
+		expect(published.join("\n")).not.toContain("const pending");
+		expect(published.filter(row => row.includes("```"))).toHaveLength(1);
+	});
+
+	it("publishes the final code body line as soon as its newline arrives", () => {
+		const prefix = "```ts\nconst complete = 1;";
+		expect(renderMarkdownFrame(prefix, 80, stream).stable).toBe(0);
+		const frame = renderMarkdownFrame(`${prefix}\n`, 80, stream);
+		expect(frame.stable).toBe(2);
+		expect(plainRows(frame.rows).slice(frame.stable)).toEqual([" ```"]);
+	});
+
+	for (const [name, body] of [
+		["late setext", "first line\nsecond line\nlast line\n=\n\nDone."],
+		["table delimiter", "first line\nsecond line\n| a | b |\n|---|---|\n| 1 | 2 |\n\nDone."],
+		["cross-line emphasis", "a **b\nc** d\nplain line\nlast line"],
+		["cross-line link", "[x\ny](u)\nplain line\nlast line"],
+		["cross-line code", "a `b\nc` d\nplain line\nlast line"],
+		["list interruption", "first line\nsecond line\nthird line\n- item one\n- item two"],
+		["closed fence before prose", "```ts\nconst x = /\\(/;\n```\nfirst line\nsecond line\nlast line"],
+		["false tilde closer", "~~~~ts\nconst x = 1;\n~~~\nconst y = 2;\n~~~~~"],
+		["false backtick closer", "```ts\nconst x = 1;\n```literal\nconst y = 2;\n`````"],
+		["nested fence", "- item\n\n  ```ts\n  const x = 1;\n  const y = 2;\n  ```\n- next item"],
+		["quoted fence", "> ```ts\n> const x = 1;\n> const y = 2;\n> ```"],
+	] as const) {
+		it(`keeps the same published rows through ${name}`, () => {
+			appendFrames(`Intro.\n\n${body}`, 24, { ...stream, textStyle: "muted em" });
+		});
+	}
+
+	for (const [open, close] of [
+		["$$", "$$"],
+		["\\[", "\\]"],
+		["\\begin{align}", "\\end{align}"],
+	] as const) {
+		it(`holds a setext heading that could become a ${open} math block`, () => {
+			const source = `Intro.\n\n${open}\n===\nfirst line\nsecond line\nthird line`;
+			expect(plainRows(appendFrames(`${source}\n${close}\n\nDone.`)).join("\n")).toContain("Intro.");
+			const frame = renderMarkdownFrame(source, 80, stream);
+			expect(plainRows(frame.rows.slice(0, frame.stable))).toEqual([" Intro.", ""]);
+		});
+	}
+
+	it("does not publish prose containing an open inline math span", () => {
+		const open = "Intro.\n\nprefix \\(x\nsecond line\nthird line";
+		const frame = renderMarkdownFrame(open, 80, stream);
+		expect(plainRows(frame.rows.slice(0, frame.stable))).toEqual([" Intro.", ""]);
+		appendFrames(`${open} \\)\n\nDone.`);
+	});
+
+	for (const info of ["", "\u00a0", "mermaid", "svg"]) {
+		it(`holds code lines for info ${JSON.stringify(info)}`, () => {
+			const frame = renderMarkdownFrame(
+				`Intro.\n\n\`\`\`${info}\n# Heading\n| a | b |\n|---|---|\n| 1 | 2 |\npending`,
+				80,
+				{
+					...stream,
+					mermaid: true,
+				},
+			);
+			expect(plainRows(frame.rows.slice(0, frame.stable))).toEqual([" Intro.", ""]);
+		});
+	}
+
+	it("compares the exact ANSI bytes against closed fences across multiline syntax", () => {
+		for (const [lang, code] of [
+			["ts", "const text = `first\nsecond ${1 + 2}\nthird`;\n/* block\ncomment */\nconst end = 1;"],
+			["py", "text = '''first\nsecond `tick`\nthird'''\nother = \"\"\"first\nsecond\nthird\"\"\"\nprint(text)"],
+			[
+				"rust",
+				'fn main() {\n/* outer\n/* inner */\nend */\nlet text = r#"first\nsecond"#;\nprintln!("{}", text);\n}',
+			],
+			["go", "package main\n/* block\ncomment */\nfunc main() {\ntext := `first\nsecond`\nprintln(text)\n}"],
+			["bash", "#!/bin/bash\ncat <<'EOF'\nfirst $literal\nsecond `tick`\nEOF\nprintf '%s\\n' \"done\""],
+			["json", '{\n  "name": "value",\n  "items": [1,\n    2, 3],\n  "ok": true\n}'],
+			["md", "# Heading\n\n**bold** and `code`\n```ts\nconst x = 1;\n```\n<!-- first\nsecond -->"],
+			["diff", "diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,2 +1,2 @@\n-old\n+new\n unchanged"],
+		] as const) {
+			const document = `~~~~${lang}\n${code}\n~~~~`;
+			const published = appendFrames(document, 32, { ...stream, codeIndent: 0 });
+			expect(published.length).toBeGreaterThan(code.split("\n").length);
+		}
+	});
+});
+
 describe("speculatively closed spans", () => {
 	const prose = "Opening prose long enough to wrap across a couple of terminal rows here.";
 	const render = (text: string, open: boolean): string[] => renderMarkdown(text, 60, { theme, stream: open });

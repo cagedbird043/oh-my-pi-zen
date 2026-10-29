@@ -10,6 +10,7 @@
  */
 import { LRUCache } from "@oh-my-pi/pi-utils/lru";
 import { listMayContinueAt } from "@oh-my-pi/pi-utils/marked-list";
+import { mathSpanAt } from "@oh-my-pi/pi-utils/math-delimiters";
 import type { TspSpan } from "@oh-my-pi/pi-wire";
 import type { Theme } from "../../theme/contract";
 import { highlightCode, supportsLanguage } from "../highlight";
@@ -156,10 +157,28 @@ function renderBlocks(r: Renderer, tokens: readonly Token[], width: number, ctx:
 	return out;
 }
 
-function renderBlock(r: Renderer, token: Token, width: number, ctx: InlineContext): Row[] {
+/** The complete source lines of the first unsettled block, counted in terminal rows as it draws. */
+interface PartialBlock {
+	readonly lines: number;
+	rows: number;
+}
+
+function renderBlock(r: Renderer, token: Token, width: number, ctx: InlineContext, partial?: PartialBlock): Row[] {
 	switch (token.type) {
-		case "paragraph":
-			return wrap(renderInline(r.inline, (token as Tokens.Paragraph).tokens, ctx), width);
+		case "paragraph": {
+			const text = renderInline(r.inline, (token as Tokens.Paragraph).tokens, ctx);
+			const rows = wrap(text, width);
+			if (partial) {
+				let end = -1;
+				for (let i = 0; i < partial.lines; i++) {
+					end = text.indexOf("\n", end + 1);
+					if (end === -1) return rows;
+				}
+				// Count wraps of the actual prefix, with the same ANSI carried across lines.
+				partial.rows = wrap(text.slice(0, end), width).length;
+			}
+			return rows;
+		}
 		case "text": {
 			const text = token as Tokens.Text;
 			const inline = text.tokens ? renderInline(r.inline, text.tokens, ctx) : ctx.text(text.text);
@@ -168,7 +187,7 @@ function renderBlock(r: Renderer, token: Token, width: number, ctx: InlineContex
 		case "heading":
 			return wrap(renderHeading(r, token as Tokens.Heading, ctx), width);
 		case "code":
-			return renderCode(r, token as Tokens.Code, width);
+			return renderCode(r, token as Tokens.Code, width, partial);
 		case "blockquote":
 			return renderQuote(r, token as Tokens.Blockquote, width);
 		case "list":
@@ -287,9 +306,16 @@ function sizedHeading(r: Renderer, token: Tokens.Heading, width: number): string
 }
 
 /** Padded rows of top-level `token`: a sized H1 over its reserved rows, or the block as `renderBlock` draws it. */
-function renderTopBlock(r: Renderer, token: Token, contentWidth: number, width: number, paddingX: number): string[] {
+function renderTopBlock(
+	r: Renderer,
+	token: Token,
+	contentWidth: number,
+	width: number,
+	paddingX: number,
+	partial?: PartialBlock,
+): string[] {
 	const sized = token.type === "heading" ? sizedHeading(r, token as Tokens.Heading, contentWidth) : undefined;
-	if (sized === undefined) return padRows(renderBlock(r, token, contentWidth, r.prose), width, paddingX);
+	if (sized === undefined) return padRows(renderBlock(r, token, contentWidth, r.prose, partial), width, paddingX);
 	const rows = [sized];
 	for (let i = 1; i < HEADING_SCALE; i++) rows.push("");
 	return padRows(rows, width, paddingX);
@@ -321,7 +347,7 @@ function fenceLanguage(token: Tokens.Code): string | undefined {
 	return lang ? lang : undefined;
 }
 
-function renderCode(r: Renderer, token: Tokens.Code, width: number): Row[] {
+function renderCode(r: Renderer, token: Tokens.Code, width: number, partial?: PartialBlock): Row[] {
 	const { styles, options } = r;
 	const lang = fenceLanguage(token);
 	if (lang === "mermaid" && options.mermaid !== false) {
@@ -329,15 +355,25 @@ function renderCode(r: Renderer, token: Tokens.Code, width: number): Row[] {
 		if (art) return art.map(row => (visibleWidth(row) > width ? truncate(row, width, "") : row));
 	}
 	const code = token.text;
-	const lines =
-		lang !== undefined && supportsLanguage(lang) ? highlightCode(code, lang, options.theme) : code.split("\n");
+	let lines: string[];
+	if (lang !== undefined && supportsLanguage(lang)) {
+		// The lexer strips the body's terminal newline. Highlight that complete line
+		// with its newline intact so it has the same ANSI when another line arrives.
+		const terminated = code !== "" && (token.raw.endsWith("\n") || isClosedFence(token));
+		lines = highlightCode(terminated ? `${code}\n` : code, lang, options.theme);
+		if (terminated) lines.pop();
+	} else {
+		lines = code.split("\n");
+	}
 	const out: Row[] = wrap(styles.codeBorder(`\`\`\`${lang ?? ""}`), width);
 	const indent = options.codeIndent ?? 2;
-	for (const raw of lines) {
+	for (let i = 0; i < lines.length; i++) {
+		const raw = lines[i]!;
 		const line = options.hyperlinks ? linkUrls(raw) : raw;
 		if (indent > 0) out.push(...wrap(spaces(indent) + line, width));
 		else if (line === "") out.push({ literal: "" });
 		else for (const literal of wrap(line, r.fullWidth)) out.push({ literal });
+		if (partial && i + 1 === partial.lines) partial.rows = out.length;
 	}
 	out.push(...wrap(styles.codeBorder("```"), width));
 	return out;
@@ -533,6 +569,7 @@ function renderPart(
 	options: MarkdownOptions,
 	key: string | undefined | readonly (string | undefined)[],
 	open: boolean,
+	partial?: PartialBlock,
 ): string[] {
 	const r = createRenderer(tokens, width, options);
 	const paddingX = options.paddingX ?? 0;
@@ -552,6 +589,7 @@ function renderPart(
 		// A reference definition draws nothing but still ends the block before it with a blank row.
 		let rows: readonly string[];
 		if (token.type === "def") rows = [];
+		else if (partial && i === 0) rows = renderTopBlock(r, token, contentWidth, width, paddingX, partial);
 		else if ((typeof key === "object" ? key[i] : key) === undefined || i === uncachedAt) {
 			rows = renderTopBlock(r, token, contentWidth, width, paddingX);
 		} else {
@@ -581,11 +619,10 @@ function growingTable(tokens: readonly Token[]): Renderer["growing"] {
 	return cell >= 0 ? { table, cell } : undefined;
 }
 
-/** Expand tabs and unify OSC 8 terminators, as the lexer must see the source; close open spans while streaming. */
-function normalizeSource(source: string, stream: boolean): string {
+/** Expand tabs and unify OSC 8 terminators before lexing. */
+function normalizeSource(source: string): string {
 	const tabbed = source.includes("\t") ? source.replaceAll("\t", "   ") : source;
-	const unified = tabbed.includes("\x1b") ? tabbed.replace(/(\x1b\]8;[^\x07\x1b]*)\x1b\\/g, "$1\x07") : tabbed;
-	return stream ? speculativeStreamingSource(unified) : unified;
+	return tabbed.includes("\x1b") ? tabbed.replace(/(\x1b\]8;[^\x07\x1b]*)\x1b\\/g, "$1\x07") : tabbed;
 }
 
 /** Content rows padded to the full width: `paddingX` blank cells on the left (none for literal rows), spaces to the right edge. */
@@ -616,32 +653,28 @@ const SELF_TERMINATING: Readonly<Record<string, true>> = { heading: true, hr: tr
 function settledCount(tokens: readonly Token[], source: string): number {
 	let last = tokens.length - 1;
 	while (last >= 0 && tokens[last]!.type === "space") last--;
-	if (last <= 0) return 0;
-	// The head ends before the block being written, or before a display math opener left open: it pairs
-	// with a closer arriving later, across blank lines.
-	let cut = last;
-	let next = 0;
+	let settled = 0;
+	let end = 0;
 	for (let i = 0; i < last; i++) {
-		const token = tokens[i]!;
-		if (token.type !== "math" && token.type !== "code" && OPEN_DISPLAY_MATH.test(token.raw)) {
-			cut = i;
-			break;
+		const before = tokens[i]!;
+		// A display opener can pair across blocks, even from within a setext heading.
+		if (before.type !== "math" && before.type !== "code" && OPEN_DISPLAY_MATH.test(before.raw)) break;
+		if (before.type === "heading" && hasOpenBackslashMath(before.raw)) break;
+		end += before.raw.length;
+		if (before.type === "space") continue;
+		let next = i + 1;
+		let start = end;
+		while (tokens[next]?.type === "space") start += tokens[next++]!.raw.length;
+		const after = tokens[next]!;
+		const separated = next > i + 1;
+		const ended = source[end - 1] === "\n";
+		const selfTerminating = SELF_TERMINATING[before.type] === true || isClosedFence(before);
+		const interrupted = !separated && ended && closesParagraph(before, after, source, start);
+		if ((separated || (ended && selfTerminating) || interrupted) && !joinsAt(before, source, start)) {
+			settled = i + 1;
 		}
-		next += token.raw.length;
 	}
-	for (;;) {
-		let settled = cut;
-		while (settled > 0 && tokens[settled - 1]!.type === "space") settled--;
-		if (settled === 0) return 0;
-		const before = tokens[settled - 1]!;
-		const separated = settled < cut || SELF_TERMINATING[before.type] === true || isClosedFence(before);
-		if (!separated) return 0;
-		// What the block after the head (past the blank lines) may still turn into decides: a block it may
-		// still join stays out of the head too.
-		if (!joinsAt(before, source, next)) return settled;
-		for (let i = settled - 1; i < cut; i++) next -= tokens[i]!.raw.length;
-		cut = settled - 1;
-	}
+	return settled;
 }
 
 /**
@@ -664,8 +697,113 @@ const INDENT_ENDED = /^ {0,3}\S/;
 /** A display math opener at the start of a line (after quote or list indentation). */
 const OPEN_DISPLAY_MATH = /(?:^|\n)[ \t>]*(?:\$\$|\\\[|\\begin\{)/;
 
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})[^\n]*\n/;
+
 function isClosedFence(token: Token): boolean {
-	return token.type === "code" && /\n[ \t]*(?:`{3,}|~{3,})[ \t]*\n?$/.test(token.raw);
+	if (token.type !== "code") return false;
+	const open = FENCE_OPEN.exec(token.raw);
+	if (!open) return false;
+	const end = token.raw.endsWith("\n") ? token.raw.length - 1 : token.raw.length;
+	const start = token.raw.lastIndexOf("\n", end - 1) + 1;
+	if (start < open[0].length) return false;
+	const close = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(token.raw.slice(start, end))?.[1];
+	return close !== undefined && close[0] === open[1]![0] && close.length >= open[1]!.length;
+}
+
+/** A complete interrupting line locks the preceding paragraph's boundary. */
+function closesParagraph(before: Token, after: Token, source: string, start: number): boolean {
+	if (before.type !== "paragraph") return false;
+	const fenced = after.type === "code" && FENCE_OPEN.test(after.raw) && fenceLanguage(after as Tokens.Code);
+	if (after.type !== "heading" && after.type !== "hr" && !fenced) {
+		return false;
+	}
+	const end = source.indexOf("\n", start);
+	if (end === -1 || (after.type === "heading" && end + 1 < start + after.raw.trimEnd().length)) return false;
+	return !hasOpenInline((before as Tokens.Paragraph).tokens) && !hasOpenBackslashMath(before.raw);
+}
+
+function hasOpenBackslashMath(source: string): boolean {
+	for (const match of source.matchAll(/\\[([]/g)) {
+		if (mathSpanAt(source, match.index) === undefined) return true;
+	}
+	return /\\begin\{/.test(source);
+}
+
+function hasOpenInline(tokens: readonly Token[]): boolean {
+	for (const token of tokens) {
+		if (token.type === "html" || (token.type === "text" && /[*_`~[\]$<]/.test(token.text))) return true;
+		if ("tokens" in token && Array.isArray(token.tokens) && hasOpenInline(token.tokens)) return true;
+	}
+	return false;
+}
+
+/** A later setext or table delimiter can reinterpret the source line above it. */
+const DELIMITER_LINE = /^ {0,3}(?:=+|-+|[ |:-]*\|[ |:-]*)[ \t]*$/;
+
+const closedInlineLines = new LRUCache<string, boolean>({ max: 1024 });
+
+function lineHasOpenInline(line: string): boolean {
+	let open = closedInlineLines.get(line);
+	if (open === undefined) {
+		open = hasOpenInline(lexInline(`${line}\n`));
+		closedInlineLines.set(line, open);
+	}
+	return open;
+}
+
+function partialBlock(
+	tokens: readonly Token[],
+	first: number,
+	source: string,
+	options: MarkdownOptions,
+): PartialBlock | undefined {
+	const token = tokens[first];
+	if (!token || source.includes("\r")) return undefined;
+	let start = 0;
+	for (let i = 0; i < first; i++) start += tokens[i]!.raw.length;
+	const raw = token.raw;
+	let lines = 0;
+	if (token.type === "code") {
+		const lang = fenceLanguage(token as Tokens.Code);
+		const opening = FENCE_OPEN.exec(raw);
+		if (!opening || !lang || lang === "mermaid" || lang === "svg") return undefined;
+		// A growing line can look like a closer. Count the ended body lines only.
+		let limit = Math.min(raw.length, source.length - start);
+		if (isClosedFence(token)) limit = raw.lastIndexOf("\n", limit - (raw.endsWith("\n") ? 2 : 1)) + 1;
+		for (let i = raw.indexOf("\n", opening[0].length); i >= 0 && i < limit; i = raw.indexOf("\n", i + 1)) {
+			lines++;
+		}
+	} else if (token.type === "paragraph" && !options.marks?.length) {
+		// One full lookahead line rules out an unfinished setext underline or table
+		// delimiter immediately after a candidate line in the shared block lexer.
+		let from = 0;
+		let end = raw.indexOf("\n");
+		let next = end < 0 ? -1 : raw.indexOf("\n", end + 1);
+		while (next >= 0 && start + next < source.length) {
+			const line = raw.slice(from, end);
+			const lookahead = raw.slice(end + 1, next);
+			// If lookahead later becomes a setext heading, a styled or hard-break
+			// line must not become the paragraph's last line and change its reset.
+			if (options.textStyle || /(?:\\| {2,})$/.test(line)) {
+				const following = raw.indexOf("\n", next + 1);
+				if (following < 0 || start + following >= source.length) break;
+			}
+			if (
+				DELIMITER_LINE.test(lookahead) ||
+				OPEN_DISPLAY_MATH.test(line) ||
+				line.includes("\x1b") ||
+				hasOpenBackslashMath(line) ||
+				(/\\begin\{/.test(lookahead) && /[=([{][ \t]*$/.test(line)) ||
+				lineHasOpenInline(line)
+			)
+				break;
+			lines++;
+			from = end + 1;
+			end = next;
+			next = raw.indexOf("\n", end + 1);
+		}
+	}
+	return lines > 0 ? { lines, rows: 0 } : undefined;
 }
 
 /** Rows of the settled heads of streaming documents, by prefix (see `renderMarkdownFrame`). */
@@ -801,6 +939,7 @@ function renderPriorDefinitions(
 	width: number,
 	options: MarkdownOptions,
 	open: boolean,
+	partial?: PartialBlock,
 ): string[] {
 	const lexed = lexWithPriorDefinitions(blocks, from);
 	const keys = new Map<string, string | undefined>();
@@ -808,7 +947,7 @@ function renderPriorDefinitions(
 		if (!keys.has(links)) keys.set(links, blockKey(width, options, links));
 		return keys.get(links);
 	});
-	return renderPart(lexed.tokens, inner, width, options, blockKeys, open);
+	return renderPart(lexed.tokens, inner, width, options, blockKeys, open, partial);
 }
 
 /** Rows of `source` at `width`, padded to the full width. Empty or blank sources have no rows. */
@@ -824,16 +963,16 @@ function withHostLook(options: MarkdownOptions): MarkdownOptions {
 }
 
 /**
- * Rows of `source` at `width` and the stable prefix among them: the rows of
- * every block before the last one being written (and the blank row after
- * them), plus the top padding. With `stream` off nothing is stable: the
- * caller owns the whole document.
+ * Rows of `source` at `width` and the stable prefix among them, including any
+ * complete lines within the first unsettled paragraph or open code fence.
+ * With `stream` off nothing is stable: the caller owns the whole document.
  */
 export function renderMarkdownFrame(source: string, width: number, given: MarkdownOptions): MarkdownFrame {
 	if (!source.trim()) return { rows: [], stable: 0 };
 	const options = withHostLook(given);
 	const stream = options.stream ?? false;
-	const normalized = normalizeSource(source, stream);
+	const original = normalizeSource(source);
+	const normalized = stream ? speculativeStreamingSource(original) : original;
 	const inner = Math.max(1, width - 2 * (options.paddingX ?? 0));
 	const paddingY = options.paddingY ?? 0;
 	if (!stream) {
@@ -849,17 +988,23 @@ export function renderMarkdownFrame(source: string, width: number, given: Markdo
 	}
 	const lexed = lexStream(source, normalized);
 	const tokens = lexed.tokens;
-	const settled = settledCount(tokens, normalized);
+	const settled = settledCount(tokens, original);
 	const head = keepStreamHead(source, tokens, settled, lexed.links, lexed.head);
 	const key = blockKey(width, options, lexed.links);
 	// With reference definitions every block resolves them against the ones before it, the open tail
 	// too: rows are a function of the source up to them, whatever the settled count is.
 	const defined = lexed.links !== "";
+	let first = settled;
+	while (tokens[first]?.type === "space") first++;
+	const partial = partialBlock(tokens, first, original, options);
 	if (settled === 0) {
 		const rows = defined
-			? renderPriorDefinitions(tokens, 0, inner, width, options, true)
-			: renderPart(tokens, inner, width, options, key, true);
-		return { rows: paddingY > 0 ? padVertically(rows, width, paddingY, []) : rows, stable: 0 };
+			? renderPriorDefinitions(tokens, first, inner, width, options, true, partial)
+			: renderPart(first === 0 ? tokens : tokens.slice(first), inner, width, options, key, true, partial);
+		return {
+			rows: paddingY > 0 ? padVertically(rows, width, paddingY, []) : rows,
+			stable: partial?.rows ? paddingY + partial.rows : 0,
+		};
 	}
 	// Rows of a settled head are a function of its source alone (each block resolves reference links
 	// against the definitions before it), so they never change as the document grows: the terminal may
@@ -884,13 +1029,13 @@ export function renderMarkdownFrame(source: string, width: number, given: Markdo
 		if (settledKey !== undefined) settledHeads.set(settledKey, headRows);
 	}
 	const tailRows = defined
-		? renderPriorDefinitions(tokens, settled, inner, width, options, true)
-		: renderPart(tokens.slice(settled), inner, width, options, key, true);
+		? renderPriorDefinitions(tokens, first, inner, width, options, true, partial)
+		: renderPart(tokens.slice(first), inner, width, options, key, true, partial);
 	const separator = headRows.length > 0 && tailRows.length > 0;
 	const rows: string[] = [];
 	for (let i = 0; i < paddingY; i++) rows.push(spaces(width));
 	for (const row of headRows) rows.push(row);
-	const stable = rows.length + (separator ? 1 : 0);
+	const stable = rows.length + (separator ? 1 : 0) + (partial?.rows ?? 0);
 	if (separator) rows.push(spaces(width));
 	for (const row of tailRows) rows.push(row);
 	for (let i = 0; i < paddingY; i++) rows.push(spaces(width));
