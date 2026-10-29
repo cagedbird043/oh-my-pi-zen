@@ -28,6 +28,10 @@ fn main() {
 	napi_build::setup();
 	build_syntax_set();
 	build_oauth_callback_helper();
+	#[cfg(feature = "wayland-pipewire")]
+	if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+		build_pipewire_bridge();
+	}
 	if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
 		build_darwin_native_helper(
 			"src/desktop/macos/capture/helper.m",
@@ -52,6 +56,25 @@ fn main() {
 		);
 		build_applefm_bridge();
 	}
+}
+
+#[cfg(feature = "wayland-pipewire")]
+fn build_pipewire_bridge() {
+	let source = "src/desktop/linux/wayland/pipewire.c";
+	println!("cargo:rerun-if-changed={source}");
+	// Headers only: emitting pkg-config's link flags would make optional
+	// desktop capture a loader dependency of every CLI command again.
+	let headers = pkg_config::Config::new()
+		.cargo_metadata(false)
+		.atleast_version("0.3.0")
+		.probe("libpipewire-0.3")
+		.expect("wayland-pipewire builds require PipeWire/SPA development headers");
+	cc::Build::new()
+		.file(source)
+		.includes(headers.include_paths)
+		.flag_if_supported("-std=gnu11")
+		.compile("omp_pipewire");
+	println!("cargo:rustc-link-lib=dl");
 }
 
 #[path = "src/syntaxes/builder.rs"]
