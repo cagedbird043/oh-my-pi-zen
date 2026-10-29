@@ -80,13 +80,8 @@ import { outputMeta } from "../../tools/output-meta";
 import { resolveToCwd, stripOuterDoubleQuotes } from "../../tools/path-utils";
 import { replaceTabs, truncateToWidth, wrapTextWithAnsi } from "../../utils/text-width";
 import { shortenEmbeddedPaths } from "../../utils/render-utils";
-import {
-	getChangelogPath,
-	parseChangelog,
-	parseChangelogView,
-	renderChangelogEntries,
-	selectChangelogEntries,
-} from "../../utils/changelog";
+import { getChangelogPath, parseChangelogView } from "../../utils/changelog";
+import { renderZenChangelogView } from "../../utils/zen-changelog";
 import { copyToClipboard } from "../../utils/clipboard";
 import { formatDumpArchiveReport, type SessionDumpArchive } from "../../session/session-dump-format";
 import { openPath } from "../../utils/open";
@@ -967,11 +962,7 @@ export class CommandController {
 			return;
 		}
 		const changelogPath = getChangelogPath();
-		const allEntries = await parseChangelog(changelogPath);
-		const entriesToShow = selectChangelogEntries(allEntries, view);
-		const changelogMarkdown =
-			entriesToShow.length > 0 ? renderChangelogEntries(entriesToShow).markdown : "No changelog entries found.";
-		const shown = entriesToShow.length;
+		const { markdown: changelogMarkdown, shown } = await renderZenChangelogView(view, { changelogPath });
 		const titleCount = shown > 0 ? shown : view.kind === "last" ? view.count : shown;
 		const title =
 			view.kind === "full"

@@ -37,6 +37,7 @@
 		"dist/cli.js",
 		"dist/docs-index.generated.txt",
 		"dist/CHANGELOG-*.md",
+		"dist/ZEN_CHANGELOG-*.md",
 		"dist/*.node",
 		"dist/*.json-*.zst",
 		"dist/perturbation-pool.json-*.txt",
@@ -44,7 +45,8 @@
 		"examples",
 		"README.md",
 		"CHANGELOG.md",
-		"THIRD-PARTY-NOTICES.txt"
+		"THIRD-PARTY-NOTICES.txt",
+		"ZEN_CHANGELOG.md"
 	],
 	"type": "module",
 	"main": "./src/index.ts",
