@@ -1,4 +1,6 @@
 pub mod ax;
+pub mod dbus_bridge;
+mod kwin;
 mod menus;
 pub mod wayland;
 pub mod x11;
@@ -9,7 +11,7 @@ use super::{
 	backend::Backend,
 	control,
 	error::{CoreResult, DesktopError},
-	types::DisplaySelector,
+	types::{DesktopSessionOptions, DisplaySelector},
 };
 
 /// How long each click's button stays down.
@@ -39,7 +41,23 @@ fn pace_clicks(count: u32, mut send: impl FnMut(bool) -> CoreResult<()>) -> Core
 	Ok(())
 }
 
-pub fn new_backend(display: DisplaySelector) -> CoreResult<Box<dyn Backend>> {
+pub fn new_backend(
+	display: DisplaySelector,
+	options: DesktopSessionOptions,
+) -> CoreResult<Box<dyn Backend>> {
+	if options.kwin_bus_address.is_some() {
+		return Ok(Box::new(kwin::KwinBackend::new(display, &options)?));
+	}
+	if std::env::var_os("WAYLAND_DISPLAY").is_some()
+		&& std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|desktop| {
+			desktop
+				.split(':')
+				.any(|part| part.eq_ignore_ascii_case("KDE"))
+		})
+		&& kwin::available()
+	{
+		return Ok(Box::new(kwin::KwinBackend::new(display, &options)?));
+	}
 	if std::env::var_os("WAYLAND_DISPLAY").is_some() {
 		return Ok(Box::new(wayland::WaylandBackend::new(display)));
 	}
