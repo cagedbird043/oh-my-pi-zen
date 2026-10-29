@@ -145,7 +145,8 @@ import { registerLocalInferenceApi } from "./tiny/local-inference-api";
 import { automaticThinkingLevel, concreteThinkingLevel, parseConfiguredThinkingLevel } from "@oh-my-pi/pi-tui/thinking";
 import type { LspStartupServerInfo } from "./tools";
 import { sanitizeDisplayWarnings } from "@oh-my-pi/pi-tui/render/render-utils";
-import { getChangelogPath, readLastChangelogVersion, resolveStartupChangelogForDisplay } from "./utils/changelog";
+import { getChangelogPath, readLastChangelogVersion } from "./utils/changelog";
+import { resolveZenStartupChangelogForDisplay } from "./utils/zen-changelog";
 import { EventBus } from "./utils/event-bus";
 import { resolveFirstLaunchPythonEvalWarning } from "./eval/startup-warning";
 import { CliUsageError } from "./cli/usage-error";
@@ -2736,7 +2737,7 @@ export async function runRootCommand(
 			// rows, and the background refresh already raced the first prompt when it ran earlier.
 			const startDeferredStartupWork = (interactive: InteractiveMode): void => {
 				if (showsStartupChangelog) {
-					void resolveStartupChangelogForDisplay({
+					void resolveZenStartupChangelogForDisplay({
 						mode: cfgStartupChangelogMode.get(settingsInstance),
 						currentVersion: VERSION,
 						lastVersion: lastChangelogVersion,
