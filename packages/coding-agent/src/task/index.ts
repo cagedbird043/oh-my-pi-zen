@@ -40,6 +40,7 @@ import { truncateForPrompt } from "../tools/approval";
 import { hasWaitTool } from "../tools/wait";
 import { isIrcEnabled } from "../irc/messaging";
 import { isReadOnlyAgent } from "./read-only-policy";
+import { omitUnusedTaskArgs } from "./arguments";
 import { formatTaskResultSummary } from "./result-summary";
 import { isScoutSpawnable, type ResolvedSpawnPolicy, resolveSpawnPolicy } from "./spawn-policy";
 import { isBundledSeance, seanceTaskGuidance, seanceTaskSchemaFields, validateSeanceParams } from "./seance";
@@ -473,7 +474,10 @@ function planSpawns(
 	seanceAdvertised: boolean,
 	settings: Settings,
 ): SpawnPlan | string {
-	const params = normalizeTaskModelPlaceholders(repairTaskParams(rawParams as TaskParams));
+	const params = omitUnusedTaskArgs(
+		normalizeTaskModelPlaceholders(repairTaskParams(rawParams as TaskParams)),
+		stepsEnabled,
+	);
 	const error =
 		validateShapeParams(batchEnabled, params) ??
 		validateSpawnParams(params, batchEnabled, stepsEnabled, defaultAgent, settings) ??
