@@ -4064,7 +4064,7 @@ export async function processResponsesStream<TApi extends Api>(
 			// Breaking unwinds the iterator chain (the consumer's `.return()`
 			// reaches the SDK stream), actively releasing the connection.
 			break;
-		} else if (event.type === "error") {
+		} else if (event.type === "error" || (!event.type && "error" in event)) {
 			throwOpenAIResponsesEventError(event, output, model.provider);
 		} else if (event.type === "response.failed") {
 			throwOpenAIResponsesEventError(event, output, model.provider);
@@ -4569,12 +4569,13 @@ export function throwOpenAIResponsesEventError(
 	provider: string,
 ): never {
 	const envelope = event as unknown as Record<string, unknown>;
-	if (event.type === "error") {
+	// Gateways also emit `event: error` with only `{ error: ... }` in data.
+	if (event.type === "error" || (!event.type && "error" in envelope)) {
 		const error = isRecord(envelope.error) ? envelope.error : envelope;
 		const inBand = AIError.createInBandProviderError(event);
 		if (inBand) throw inBand;
 		throw new AIError.ProviderResponseError(
-			`Error Code ${error.code ?? "unknown"}: ${error.message ?? "no message"}`,
+			`Error Code ${error.code ?? error.type ?? "unknown"}: ${error.message ?? "no message"}`,
 			{ provider, kind: "output" },
 		);
 	}
