@@ -19,6 +19,7 @@ const PROVIDER_LOADERS: ProviderRegistry<SearchEngineId> = {
 	perplexity: () => import("./providers/perplexity").then(m => new m.PerplexityProvider()),
 	zai: () => import("./providers/zai").then(m => new m.ZaiProvider()),
 	exa: () => import("./providers/exa").then(m => new m.ExaProvider()),
+	anysearch: () => import("./providers/anysearch").then(m => new m.AnySearchProvider()),
 	tinyfish: () => import("./providers/tinyfish").then(m => new m.TinyFishProvider()),
 	keenable: () => import("./providers/keenable").then(m => new m.KeenableProvider()),
 	jina: () => import("./providers/jina").then(m => new m.JinaProvider()),
