@@ -516,6 +516,7 @@ behavior {
 		model "web/parallel"
 		model "web/hosted"
 		model "web/exa"
+		model "web/anysearch"
 		model "web/firecrawl"
 		model "web/searxng"
 		model "web/startpage"
