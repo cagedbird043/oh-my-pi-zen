@@ -15,6 +15,7 @@ import {
 	archiveSession,
 	archiveSessions,
 } from "./archive";
+import { archiveGrep } from "./grep";
 // @ts-expect-error Bun imports this JavaScript source as text instead of evaluating its module shape.
 import archiveJavascript from "./prelude.js" with { type: "text" };
 import archivePython from "./prelude.py" with { type: "text" };
@@ -29,7 +30,20 @@ const paramsSchema = type({ action: "'projects'", "limit?": limit, "+": "reject"
 	.or({ action: "'sessions' | 'recaps'", "project?": project, "limit?": limit, "+": "reject" })
 	.or({ action: "'session'", id: "string > 0", "limit?": limit, "+": "reject" })
 	.or({ action: "'prompts'", "query?": "string > 0", "project?": project, "limit?": limit, "+": "reject" })
-	.or({ action: "'search'", query: "string > 0", "project?": project, "limit?": limit, "+": "reject" });
+	.or({ action: "'search'", query: "string > 0", "project?": project, "limit?": limit, "+": "reject" })
+	.or({
+		action: "'grep'",
+		query: "string > 0",
+		"project?": project,
+		"limit?": limit,
+		"context?": "0 <= number.integer <= 10",
+		"regex?": "boolean",
+		"caseSensitive?": "boolean",
+		"since?": "string > 0",
+		"until?": "string > 0",
+		"includeSubagents?": "boolean",
+		"+": "reject",
+	});
 
 type ArchiveParams = typeof paramsSchema.infer;
 
@@ -58,6 +72,8 @@ async function archiveView(params: ArchiveParams, cwd: string): Promise<ArchiveV
 			return archiveSearch(params.query, resolveProject(params.project, cwd), count);
 		case "recaps":
 			return archiveRecaps(resolveProject(params.project, cwd), count);
+		case "grep":
+			return archiveGrep(params.query, resolveProject(params.project, cwd), params);
 	}
 }
 
@@ -72,6 +88,8 @@ function describeArchiveCall(parameters: unknown): string | undefined {
 			return `archive.session(${parsed.id})`;
 		case "search":
 			return `archive.search(${JSON.stringify(parsed.query)})`;
+		case "grep":
+			return `archive.grep(${JSON.stringify(parsed.query)})`;
 		case "prompts":
 			if (parsed.query) return `archive.prompts(${JSON.stringify(parsed.query)})`;
 			return `archive.prompts(${parsed.project ? shortenPath(parsed.project) : ""})`;
