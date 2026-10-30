@@ -1,9 +1,9 @@
 //! Cross-process advisory locks backed by platform ownership primitives.
 //!
 //! Windows uses named mutexes, so it leaves no filesystem artifact. Unix
-//! platforms lock a persistent sidecar: Linux takes an open-file-description
-//! record lock, other Unix platforms `flock(2)`. Linux also treats a path as
-//! held while an older build still binds its abstract-socket name.
+//! platforms lock a persistent sidecar: Linux and Android take an
+//! open-file-description record lock and also respect older abstract-socket
+//! holders. Other Unix platforms use `flock(2)`.
 
 use std::{io, path::Path};
 
@@ -12,7 +12,7 @@ use napi_derive::napi;
 
 use crate::js;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod legacy_abstract;
 #[cfg(unix)]
 mod unix;
@@ -27,7 +27,7 @@ use windows as platform;
 #[cfg(not(any(unix, target_os = "windows")))]
 compile_error!("omp-natives file locks require Unix or Windows");
 
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "windows"))]
 fn memory_lock_name(path: &str) -> String {
 	const HIGH_SEED: u64 = 0x4f4d_502d_4c4f_434b;
 	const LOW_SEED: u64 = 0x5049_2d46_494c_454c;
@@ -58,7 +58,7 @@ impl FileLock {
 			io::Error::new(io::ErrorKind::InvalidInput, "lock path is not valid UTF-8")
 		})?;
 		let inner = platform::try_acquire(path)?;
-		#[cfg(target_os = "linux")]
+		#[cfg(any(target_os = "linux", target_os = "android"))]
 		let inner = if inner.is_some() && legacy_abstract::is_bound(path)? {
 			None
 		} else {
@@ -69,7 +69,7 @@ impl FileLock {
 
 	pub(crate) fn is_held_path(path: &str) -> io::Result<bool> {
 		let held = platform::is_held(path)?;
-		#[cfg(target_os = "linux")]
+		#[cfg(any(target_os = "linux", target_os = "android"))]
 		let held = held || legacy_abstract::is_bound(path)?;
 		Ok(held)
 	}
@@ -89,9 +89,10 @@ impl FileLock {
 	/// Whether any handle, in any process including this one, holds `path`.
 	///
 	/// Observes without taking the lock: an `F_OFD_GETLK` query plus a
-	/// `connect(2)` probe of the older abstract-socket name on Linux, an
-	/// `F_GETLK` query on other Unix platforms, a `\BaseNamedObjects` directory
-	/// listing on Windows. A concurrent `tryAcquire()` never meets it.
+	/// `connect(2)` probe of the older abstract-socket name on Linux and
+	/// Android, an `F_GETLK` query on other Unix platforms, a
+	/// `\BaseNamedObjects` directory listing on Windows. A concurrent
+	/// `tryAcquire()` never meets it.
 	#[napi]
 	pub fn is_held(path: JsString) -> napi::Result<bool> {
 		let path = js::utf8(path)?;
@@ -144,8 +145,7 @@ impl Drop for FileLock {
 	}
 }
 
-// Android has no probe (`unix::is_held` reports Unsupported).
-#[cfg(all(test, not(target_os = "android")))]
+#[cfg(test)]
 mod tests {
 	use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -178,14 +178,15 @@ mod tests {
 		let _ = std::fs::remove_file(path);
 	}
 
-	#[cfg(target_os = "linux")]
+	#[cfg(any(target_os = "linux", target_os = "android"))]
 	#[test]
 	fn lock_held_by_an_older_build_is_respected() {
+		#[cfg(target_os = "android")]
+		use std::os::android::net::SocketAddrExt;
+		#[cfg(target_os = "linux")]
+		use std::os::linux::net::SocketAddrExt;
 		use std::{
-			os::{
-				linux::net::SocketAddrExt,
-				unix::net::{SocketAddr, UnixDatagram},
-			},
+			os::unix::net::{SocketAddr, UnixDatagram},
 			path::Path,
 		};
 

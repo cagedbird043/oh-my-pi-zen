@@ -1,9 +1,10 @@
+#[cfg(target_os = "android")]
+use std::os::android::net::SocketAddrExt;
+#[cfg(target_os = "linux")]
+use std::os::linux::net::SocketAddrExt;
 use std::{
 	io,
-	os::{
-		linux::net::SocketAddrExt,
-		unix::net::{SocketAddr, UnixDatagram},
-	},
+	os::unix::net::{SocketAddr, UnixDatagram},
 };
 
 /// Whether an older omp build holds `path` by binding its abstract-socket

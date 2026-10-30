@@ -30,6 +30,7 @@ pub mod audio;
 pub mod block;
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
 mod bundled_libc;
+#[cfg_attr(target_os = "android", path = "clipboard_android.rs")]
 pub mod clipboard;
 pub mod console_input;
 pub mod console_threads;
