@@ -418,6 +418,7 @@ therefore completes through the paste-code path.
 | Variable                                            | Used by                                                                                                                                                        |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `EXA_API_KEY`                                       | Exa search/MCP; alternatively use `/login exa`; without a key, uses the keyless public MCP (see below)                                                         |
+| `ANYSEARCH_API_KEY`                                 | AnySearch search provider; alternatively use `/login anysearch` (optional for explicit anonymous search)                                                        |
 | `TINYFISH_API_KEY`                                  | TinyFish search provider (required)                                                                                                                            |
 | `KEENABLE_API_KEY`                                  | Keenable search provider (automatic chain requires a key; explicit `web/keenable` selection can use the keyless public endpoint, see below)                    |
 | `SOFYA_API_KEY`                                     | Sofya search provider (required)                                                                                                                               |
@@ -446,6 +447,8 @@ therefore completes through the paste-code path.
 Keyless Parallel, Exa, and hosted Firecrawl search can run in the automatic chain while `providers.webKeyless` is enabled (the default). Setting `providers.webKeyless=false` skips these keyless paths, including explicit `web` role and fallback entries; only a per-request selector such as `omp q --model web/exa "…"` can still run them. Keenable joins the automatic chain only with a credential; an explicit `web/keenable` candidate uses its public endpoint without one, subject to the same `providers.webKeyless` rule.
 
 DuckDuckGo search is keyless — it queries the no-JS HTML frontend (`html.duckduckgo.com`) and needs no credentials; it also feeds the credential-free `public` aggregate (alongside startpage, google, ecosia, and mojeek).
+
+AnySearch is selectable as `web/anysearch` in the web model role and fallback chain. Run `/login anysearch` to store an API key in the built-in credential store, or set `ANYSEARCH_API_KEY`. Authenticated AnySearch participates in the default fallback chain after Exa; an explicitly configured `web/anysearch` also searches without a key. Anonymous results show a login/rate-limit warning to the user and ask the model to relay it. The built-in tool uses general HTTP search only; domain discovery and vertical `tag`/`params` are not exposed.
 
 SearXNG also reads the equivalent `searxng.endpoint`, `searxng.token`, `searxng.basicUsername`, and `searxng.basicPassword` settings from `~/.omp/agent/config.yml`; environment variables are fallbacks.
 

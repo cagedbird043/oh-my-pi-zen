@@ -124,6 +124,7 @@ function paintWebSearch(node: UiNode, cx: PaintContext): Block {
 		sections.push({
 			lines: [`${theme.fg("muted", "Query:")} ${replaceTabs(term.query ?? "")}`],
 		});
+		if (term.warnings?.length) sections.push({ lines: term.warnings.map(warning => theme.fg("warning", warning)) });
 		if (term.answer) {
 			let answer = renderMarkdown(term.answer, Math.max(1, inner), { theme }).map(row => row.trimEnd());
 			const max = term.maxAnswerLines;

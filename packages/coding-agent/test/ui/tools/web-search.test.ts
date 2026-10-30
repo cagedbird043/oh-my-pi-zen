@@ -88,6 +88,25 @@ test("the native tool warns on no sources, not on the absence of an answer", () 
 	});
 });
 
+test("provider warnings appear in native and terminal search results", () => {
+	createRoot(dispose => {
+		try {
+			const env = staticEnvironment(currentTheme());
+			const message = "Run /login anysearch to avoid anonymous rate limits.";
+			const response = { ...RESPONSE, provider: "anysearch", warnings: [{ message }] };
+			expect(describeTree(searchCard(response), env)).toMatchObject({
+				c: [{ k: "text", p: { spans: [{ t: message, s: "warning" }] } }, { k: "col" }],
+			});
+			for (const expanded of [false, true]) {
+				const rows = paintNode(env, searchCard(response, { expanded }), 100).rows.map(row => Bun.stripANSI(row));
+				expect(rows.some(row => row.includes(message))).toBe(true);
+			}
+		} finally {
+			dispose();
+		}
+	});
+});
+
 test("the terminal expands source excerpts and reveals sources beyond the collapsed preview", () => {
 	createRoot(dispose => {
 		try {

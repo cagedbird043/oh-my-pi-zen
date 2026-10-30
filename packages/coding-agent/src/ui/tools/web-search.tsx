@@ -40,6 +40,7 @@ export interface WebSearchResponse {
 	readonly answer?: string;
 	readonly searchQueries?: readonly string[];
 	readonly sources?: readonly WebSearchSource[];
+	readonly warnings?: readonly { readonly message: string }[];
 	readonly model?: string;
 	readonly usage?: {
 		readonly inputTokens?: number;
@@ -76,6 +77,7 @@ export type WebSearchTerm = {
 	readonly query?: string;
 	readonly provider?: string;
 	readonly sourceCount?: number;
+	readonly warnings?: readonly string[];
 	/** Markdown answer. */
 	readonly answer?: string;
 	/** Plain answer lines when neither an answer nor any sources were returned. */
@@ -93,6 +95,7 @@ export type WebSearchTerm = {
 const PROVIDER_NAMES: Readonly<Record<string, string>> = {
 	openai: "OpenAI",
 	xai: "xAI",
+	anysearch: "AnySearch",
 	perplexity: "Perplexity",
 	anthropic: "Anthropic",
 	exa: "Exa",
@@ -210,6 +213,7 @@ export const webSearchPresenter: ToolPresenter<WebSearchArgs, WebSearchDetails> 
 			};
 		}
 		const sources = response.sources ?? [];
+		const warnings = response.warnings?.map(({ message }) => flatText(sanitizeText(message)));
 		const usage = usageText(response.usage);
 		const auth = response.authMode ? AUTH_MODES[response.authMode] : undefined;
 		const reached = auth ? `${provider} (${auth})` : provider;
@@ -241,6 +245,9 @@ export const webSearchPresenter: ToolPresenter<WebSearchArgs, WebSearchDetails> 
 			}),
 			tone: sources.length === 0 ? "warning" : undefined,
 			body: [
+				warnings?.map((warning, i) => (
+					<text key={`warning:${i}`} spans={[{ s: "warning", t: warning }]} wrap="word" />
+				)),
 				answer ? (
 					<md key="answer" text={answer} title={detail} />
 				) : fallback ? (
@@ -278,6 +285,7 @@ export const webSearchPresenter: ToolPresenter<WebSearchArgs, WebSearchDetails> 
 				query,
 				provider,
 				sourceCount: sources.length,
+				warnings,
 				answer,
 				fallback,
 				sources: termSources,
