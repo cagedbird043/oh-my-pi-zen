@@ -3,6 +3,7 @@ import * as AIError from "../error";
 import { getProviderHooks } from "../provider-hooks";
 import { assertProviderEnabled } from "../registry/oauth";
 import { isFactoryDroidModel } from "../providers/factory-droid";
+import { generateImageBatch } from "./batch";
 import { generateFactoryDroidImage } from "./factory-droid";
 import { generateAntigravityImage } from "./google-antigravity";
 import { generateGoogleImage } from "./google-generative-ai";
@@ -34,8 +35,12 @@ export async function generateImage(
 ): Promise<ImageGenerationResult> {
 	// A provider turned off in its auth rules is never called, even with a key passed in directly.
 	assertProviderEnabled(model.provider);
+	const count = request.count ?? 1;
+	if (!Number.isInteger(count) || count < 1 || count > 4)
+		throw new AIError.ValidationError("Image count must be between 1 and 4");
 	const hooks = getProviderHooks(model.provider);
 	if (hooks?.generateImage) return hooks.generateImage(model, request, options);
+	if (count > 1) return generateImageBatch(count, () => generateImage(model, { ...request, count: 1 }, options));
 	if (isFactoryDroidModel(model)) return generateFactoryDroidImage(model, request, options);
 	switch (model.api) {
 		case "openai-images":
