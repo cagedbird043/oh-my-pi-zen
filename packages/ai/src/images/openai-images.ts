@@ -1,3 +1,4 @@
+import { imageGenerationPolicy } from "@oh-my-pi/pi-catalog/compat/image-generation";
 import type { Model } from "@oh-my-pi/pi-catalog/types";
 import * as AIError from "../error";
 import { resolveXaiBaseUrl } from "../providers/xai-base-url";
@@ -24,110 +25,68 @@ export async function generateOpenAIImage(
 	options: ImageGenerationOptions,
 ): Promise<ImageGenerationResult> {
 	const fetchImpl = options.fetch ?? fetch;
-	const size = resolveOpenAIImageSize(request.aspectRatio, request.imageSize);
-	const count = request.count ?? 1;
-	const wireModelId = model.requestModelId ?? model.id;
-	// Hand-built image models (SDK callers, tests) may skip `buildModel` and carry no identity.
-	const isGptImage = model.identity?.family === "gpt-image";
-	const isXAI = model.provider === "xai" || model.provider === "xai-oauth";
-	const generationBody = isXAI
-		? {
-				model: wireModelId,
-				prompt: request.prompt,
-				aspect_ratio: request.aspectRatio ?? "1:1",
-				resolution: resolveXAIResolution(request.imageSize),
-				n: count,
-				...(isGptImage ? {} : { response_format: "b64_json" }),
-			}
-		: {
-				model: wireModelId,
-				prompt: request.prompt,
-				n: count,
-				...(isGptImage ? {} : { response_format: "b64_json" }),
-				...(size ? { size } : {}),
-			};
-	const inputImages = request.inputImages ?? [];
-	if (isXAI && inputImages.length > XAI_MAX_EDIT_IMAGES) {
+	const policy = imageGenerationPolicy(model);
+	if (request.background === "transparent" && !policy.supportsBackground)
 		throw new AIError.ValidationError(
-			`${model.provider} image edits accept up to ${XAI_MAX_EDIT_IMAGES} reference images; got ${inputImages.length}`,
+			`Image model ${model.provider}/${model.id} does not support transparent backgrounds`,
+		);
+	const size = resolveOpenAIImageSize(request.aspectRatio, request.imageSize);
+	const inputImages = request.inputImages ?? [];
+	if (policy.maxReferences !== undefined && inputImages.length > policy.maxReferences) {
+		throw new AIError.ValidationError(
+			`${model.provider} image edits accept up to ${policy.maxReferences} reference images; got ${inputImages.length}`,
 		);
 	}
 	const baseUrl = imageBaseUrl(model);
-	// xAI resolves the endpoint per bearer: XAI_BASE_URL never receives an xai-oauth OAuth access token.
-	const endpoint = (path: string) =>
-		isXAI
-			? (bearer: string) => `${resolveXaiBaseUrl(model.provider, baseUrl, bearer) ?? baseUrl}${path}`
-			: `${baseUrl}${path}`;
+	const endpoint = (route: string) =>
+		policy.geometry === "resolution"
+			? (bearer: string) => `${resolveXaiBaseUrl(model.provider, baseUrl, bearer) ?? baseUrl}${route}`
+			: `${baseUrl}${route}`;
+	const quality = request.quality ? policy.quality[request.quality] : policy.defaultQuality;
+	const body = {
+		model: model.requestModelId ?? model.id,
+		prompt: request.prompt,
+		...(policy.responseFormat ? { response_format: "b64_json" } : {}),
+		...(policy.geometry === "resolution"
+			? { aspect_ratio: request.aspectRatio ?? "1:1", resolution: resolveXAIResolution(request.imageSize) }
+			: { ...(size ? { size } : {}) }),
+		...(policy.supportsBackground ? { background: request.background ?? "auto" } : {}),
+		...(quality ? { quality } : {}),
+		...(policy.outputFormat ? { output_format: policy.outputFormat } : {}),
+	};
 	let response: unknown;
-	if (inputImages.length === 0) {
-		response = await postJson({
+	if (inputImages.length && policy.editEncoding === "multipart") {
+		const form = new FormData();
+		for (const [key, value] of Object.entries(body)) form.set(key, String(value));
+		const imageField = inputImages.length === 1 ? "image" : "image[]";
+		for (const image of inputImages) {
+			validateImageInput(image);
+			form.append(imageField, new File([Buffer.from(image.data, "base64")], "image", { type: image.mimeType }));
+		}
+		response = await postMultipart({
 			model,
-			url: endpoint("/images/generations"),
-			body: generationBody,
+			url: endpoint("/images/edits"),
+			body: form,
 			apiKey: options.apiKey,
 			fetch: fetchImpl,
 			signal: options.signal,
 		});
 	} else {
-		// Data URLs copy every multi-MB reference, so only the JSON routes build
-		// them; OpenAI's multipart edit sends raw bytes and needs them only for
-		// the 404 fallback.
-		const buildEditBody = (): Record<string, unknown> => {
-			const references = inputImages.map(image => ({ type: "image_url", url: toDataUrl(image) }));
-			if (!isXAI) return { ...generationBody, input_references: references };
-			return references.length === 1
-				? { ...generationBody, image: references[0] }
-				: { ...generationBody, images: references };
-		};
-		let editBody: Record<string, unknown> | undefined;
-		try {
-			if (model.provider === "openai") {
-				const form = new FormData();
-				form.set("model", wireModelId);
-				form.set("prompt", request.prompt);
-				form.set("n", String(count));
-				if (!isGptImage) form.set("response_format", "b64_json");
-				if (size) form.set("size", size);
-				// 重复的标量 `image` 字段会被判为 `duplicate_parameter`；多图须使用官方 SDK
-				// 同款的 `image[]` 数组语法。单图保留标量字段，兼容只接受 `image` 的端点。
-				const imageField = inputImages.length === 1 ? "image" : "image[]";
-				for (const image of inputImages) {
-					validateImageInput(image);
-					form.append(
-						imageField,
-						new File([Buffer.from(image.data, "base64")], "image", { type: image.mimeType }),
-					);
-				}
-				response = await postMultipart({
-					model,
-					url: endpoint("/images/edits"),
-					body: form,
-					apiKey: options.apiKey,
-					fetch: fetchImpl,
-					signal: options.signal,
-				});
-			} else {
-				editBody = buildEditBody();
-				response = await postJson({
-					model,
-					url: endpoint("/images/edits"),
-					body: editBody,
-					apiKey: options.apiKey,
-					fetch: fetchImpl,
-					signal: options.signal,
-				});
-			}
-		} catch (error) {
-			if (!(error instanceof AIError.ProviderHttpError) || error.status !== 404) throw error;
-			response = await postJson({
-				model,
-				url: endpoint("/images/generations"),
-				body: editBody ?? buildEditBody(),
-				apiKey: options.apiKey,
-				fetch: fetchImpl,
-				signal: options.signal,
-			});
-		}
+		const references = inputImages.map(image => ({ image_url: toDataUrl(image) }));
+		const edit =
+			policy.editEncoding === "xai"
+				? references.length === 1
+					? { image: { type: "image_url", url: references[0]!.image_url } }
+					: { images: references.map(image => ({ type: "image_url", url: image.image_url })) }
+				: { images: references };
+		response = await postJson({
+			model,
+			url: endpoint(inputImages.length ? "/images/edits" : "/images/generations"),
+			body: { ...body, ...(inputImages.length ? edit : {}) },
+			apiKey: options.apiKey,
+			fetch: fetchImpl,
+			signal: options.signal,
+		});
 	}
 	return decodeImageResponse(response, fetchImpl, options.signal);
 }
