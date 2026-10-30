@@ -33,6 +33,7 @@
 		session: (id, options) => call("session", "session", options, { id }),
 		prompts: options => call("prompts", "prompts", options),
 		search: (query, options) => call("search", "search", options, { query }),
+		grepContext: (query, options) => call("grepContext", "grepContext", options, { query }),
 		recaps: options => call("recaps", "recaps", options),
 		calls: options => call("calls", "calls", options),
 		grep: (pattern, options) => call("grep", "grep", options, { pattern }),

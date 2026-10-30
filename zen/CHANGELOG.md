@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Eval 的 `archive` 新增 `grepContext()`：流式搜索会话正文并返回命中前后的对话轮次，JS 和 Python 均可用。
+  Eval `archive` gains `grepContext()`: stream-search transcript bodies and return surrounding conversation turns in JavaScript and Python.
+
 ### Fixed
 
 - 启动时不再因插件的纯类型依赖触发自动下载而卡住；zen 扩展使用当前宿主的 SDK 状态。

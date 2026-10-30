@@ -26,6 +26,7 @@ import {
 	archiveSession,
 	archiveSessions,
 } from "./archive";
+import { archiveGrep as archiveGrepContext } from "./grep";
 import { archiveTranscript } from "./transcript";
 // @ts-expect-error Bun imports this JavaScript source as text instead of evaluating its module shape.
 import archiveJavascript from "./prelude.js" with { type: "text" };
@@ -108,6 +109,18 @@ const paramsSchema = type({ action: "'projects'", "limit?": limit, ...window, "+
 		"detail?": transcriptDetail,
 		"turns?": transcriptTurns,
 		...window,
+		"+": "reject",
+	})
+	.or({
+		action: "'grepContext'",
+		query: "string > 0",
+		"project?": project,
+		"limit?": limit,
+		"context?": "0 <= number.integer <= 10",
+		"regex?": "boolean",
+		"caseSensitive?": "boolean",
+		...window,
+		"includeSubagents?": "boolean",
 		"+": "reject",
 	});
 
@@ -266,6 +279,8 @@ async function archiveView(params: ArchiveParams, cwd: string, signal?: AbortSig
 				limit: count,
 				signal,
 			});
+		case "grepContext":
+			return archiveGrepContext(params.query, resolveProject(params.project, cwd), params);
 	}
 }
 
@@ -284,6 +299,8 @@ function describeArchiveCall(parameters: unknown): string | undefined {
 			return `archive.search(${JSON.stringify(parsed.query)})`;
 		case "grep":
 			return `archive.grep(${JSON.stringify(parsed.pattern)})`;
+		case "grepContext":
+			return `archive.grepContext(${JSON.stringify(parsed.query)})`;
 		case "prompts":
 			if (parsed.query) return `archive.prompts(${JSON.stringify(parsed.query)})`;
 			return `archive.prompts(${parsed.project ? shortenPath(parsed.project) : ""})`;

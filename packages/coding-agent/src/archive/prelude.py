@@ -177,6 +177,15 @@ def _make_archive():
                 silent,
             )
 
+        async def grepContext(self, query, *, project=None, limit=None, context=None,
+                              regex=None, caseSensitive=None, since=None, until=None,
+                              includeSubagents=None, silent=False):
+            return await _call("grepContext", {
+                "query": query, "project": project, "limit": limit, "context": context,
+                "regex": regex, "caseSensitive": caseSensitive, "since": since,
+                "until": until, "includeSubagents": includeSubagents,
+            }, silent)
+
     return _Archive()
 
 
