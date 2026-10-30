@@ -40,6 +40,7 @@ import { truncateForPrompt } from "../tools/approval";
 import { hasWaitTool } from "../tools/wait";
 import { isIrcEnabled } from "../irc/messaging";
 import { isReadOnlyAgent } from "./read-only-policy";
+import { omitUnusedTaskArgs } from "./arguments";
 import { formatTaskResultSummary } from "./result-summary";
 import { isScoutSpawnable, resolveSpawnPolicy } from "./spawn-policy";
 import { type AgentDefinition, canSpawnAtDepth, getTaskSchema, type TaskToolSchemaInstance } from "./types";
@@ -445,7 +446,10 @@ function planSpawns(
 	defaultAgent: string,
 	settings: Settings,
 ): SpawnPlan | string {
-	const params = normalizeTaskModelPlaceholders(repairTaskParams(rawParams as TaskParams));
+	const params = omitUnusedTaskArgs(
+		normalizeTaskModelPlaceholders(repairTaskParams(rawParams as TaskParams)),
+		stepsEnabled,
+	);
 	const error =
 		validateShapeParams(batchEnabled, params) ?? validateSpawnParams(params, batchEnabled, stepsEnabled, settings);
 	if (error) return error;
