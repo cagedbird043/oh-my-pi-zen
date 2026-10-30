@@ -116,7 +116,7 @@ fn parse_procargs2(buffer: &[u8]) -> Vec<String> {
 }
 
 /// Linux process primitives: procfs and pidfds.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub mod sys {
 	use std::{
 		fs,
@@ -197,7 +197,7 @@ pub mod sys {
 	}
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod proc_snapshot {
 	use std::{collections::HashMap, fs, os::fd::AsFd, time::Duration};
 
@@ -1876,7 +1876,7 @@ mod proc_snapshot {
 	}
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "windows"))]
 pub use proc_snapshot::{ProcInfo, threads_by_pid};
 
 /// The processes a signal must never reach: this one and its ancestors.
@@ -1900,7 +1900,7 @@ pub use proc_snapshot::{ProcInfo, threads_by_pid};
 ///
 /// Listing is unaffected: `pgrep` still reports ancestors and `ps` still shows
 /// them. Only signalling consults this.
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "windows"))]
 pub struct HostProcesses {
 	/// This process and its ancestors, nearest first.
 	pub pids:  smallvec::SmallVec<[i32; 16]>,
@@ -1913,7 +1913,7 @@ pub struct HostProcesses {
 /// Keeping the walk over this rather than over [`ProcInfo`] lets the recycling
 /// cases — which are otherwise only reachable by winning a race against the OS —
 /// be tested with a synthetic tree.
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "windows"))]
 #[derive(Clone, Copy)]
 struct ChainNode {
 	ppid:  Option<i32>,
@@ -1923,7 +1923,7 @@ struct ChainNode {
 	start: u64,
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "windows"))]
 impl HostProcesses {
 	/// Whether signalling `target` would reach this process or one of its
 	/// ancestors.
@@ -2009,7 +2009,10 @@ impl HostProcesses {
 	}
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+#[cfg(all(
+	test,
+	any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "windows")
+))]
 mod tests {
 	use super::{HostProcesses, ProcInfo};
 

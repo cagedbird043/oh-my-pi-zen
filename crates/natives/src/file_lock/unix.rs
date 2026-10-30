@@ -1,4 +1,4 @@
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 use std::fs::TryLockError;
 use std::{
 	fs::{File, OpenOptions},
@@ -22,7 +22,7 @@ pub fn try_acquire(path: &str) -> io::Result<Option<PlatformFileLock>> {
 	Ok(lock_exclusive(&file)?.then(|| PlatformFileLock { file: Some(file) }))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn lock_exclusive(file: &File) -> io::Result<bool> {
 	match whole_file_lock(file, libc::F_OFD_SETLK, libc::F_WRLCK as libc::c_short) {
 		Ok(_) => Ok(true),
@@ -31,7 +31,7 @@ fn lock_exclusive(file: &File) -> io::Result<bool> {
 	}
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn lock_exclusive(file: &File) -> io::Result<bool> {
 	match file.try_lock() {
 		Ok(()) => Ok(true),
@@ -40,7 +40,7 @@ fn lock_exclusive(file: &File) -> io::Result<bool> {
 	}
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const PROBE_COMMAND: libc::c_int = libc::F_OFD_GETLK;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 const PROBE_COMMAND: libc::c_int = libc::F_GETLK;
@@ -52,7 +52,6 @@ const PROBE_COMMAND: libc::c_int = libc::F_GETLK;
 /// observes an exclusive holder without locking anything, so a concurrent
 /// `try_acquire` never meets the probe. A missing sidecar means nobody ever
 /// locked the path.
-#[cfg(not(target_os = "android"))]
 pub fn is_held(path: &str) -> io::Result<bool> {
 	let file = match OpenOptions::new().read(true).open(path) {
 		Ok(file) => file,
@@ -63,14 +62,6 @@ pub fn is_held(path: &str) -> io::Result<bool> {
 	Ok(conflicting != libc::F_UNLCK as libc::c_short)
 }
 
-/// Android runs a Linux kernel, which keeps `flock` locks apart from `fcntl`
-/// ones, so `F_GETLK` cannot see a holder; report the probe as unsupported.
-#[cfg(target_os = "android")]
-pub fn is_held(_path: &str) -> io::Result<bool> {
-	Err(io::ErrorKind::Unsupported.into())
-}
-
-#[cfg(not(target_os = "android"))]
 fn whole_file_lock(
 	file: &File,
 	command: libc::c_int,
