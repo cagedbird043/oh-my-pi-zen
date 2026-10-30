@@ -9,6 +9,8 @@ CMAKE_GENERATOR = "Ninja"
 # (`packages/natives/scripts/build-bindings.ts`): a system libpcre2 would make
 # `obash` load a Homebrew dylib at every start and depend on it.
 PCRE2_SYS_STATIC = "1"
+# Android addons ship as one cdylib; avoid an unbundled libc++_shared.so dependency.
+CXXSTDLIB_aarch64_linux_android = "c++_static"
 # Store each crate's metadata only in its .rmeta instead of duplicating it into
 # every rlib. Measured on a reqwest-sized graph: 196 MB -> 130 MB target dir at
 # identical build times. Requires the pinned nightly (rust-toolchain.toml).

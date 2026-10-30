@@ -9,6 +9,8 @@
  * the interactive mode context so the context passes as the host.
  */
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as url from "node:url";
 import { getWorkProfile } from "@oh-my-pi/pi-natives";
 import { type JSXNode, nativeRendering, signal } from "@oh-my-pi/pi-tui";
@@ -259,7 +261,7 @@ export class DebugTools {
 				this.#host.showWarning(`No work profile data (${workProfile.sampleCount} samples)`);
 				return;
 			}
-			const tmpPath = `/tmp/work-profile-${Date.now()}.svg`;
+			const tmpPath = path.join(os.tmpdir(), `work-profile-${Date.now()}.svg`);
 			await Bun.write(tmpPath, workProfile.svg);
 			openPath(tmpPath);
 			this.#present([[{ s: "dim", t: `Opened flamegraph (${workProfile.sampleCount} samples)` }]]);

@@ -620,7 +620,7 @@ function sessionLeasePath(sessionId: string, createDir: boolean): string {
 		// user could pre-create it or plant a symlink: refuse anything but a
 		// directory this user owns that nobody else can enter. A probe of a
 		// directory nobody created yet still goes to the lock, which on Linux
-		// also sees a lease an older build holds as an abstract socket.
+		// and Android also sees a lease an older build holds as an abstract socket.
 		let st: fs.Stats;
 		try {
 			st = fs.lstatSync(dir);

@@ -204,7 +204,7 @@ pub fn signal_each<'a>(procs: impl IntoIterator<Item = &'a ProcInfo>, sig: i32) 
 /// The command name may itself contain spaces and parentheses, so it ends at
 /// the *last* `)`.
 #[cfg_attr(
-	not(target_os = "linux"),
+	not(any(target_os = "linux", target_os = "android")),
 	allow(dead_code, reason = "Linux-only outside tests; the parser is tested everywhere")
 )]
 fn split_stat(line: &[u8]) -> Option<(&[u8], impl Iterator<Item = &[u8]>)> {
@@ -222,7 +222,7 @@ fn split_stat(line: &[u8]) -> Option<(&[u8], impl Iterator<Item = &[u8]>)> {
 
 /// Parse a Linux `/proc/<pid>/stat` line.
 #[cfg_attr(
-	not(target_os = "linux"),
+	not(any(target_os = "linux", target_os = "android")),
 	allow(dead_code, reason = "Linux-only outside tests; the parser is tested everywhere")
 )]
 fn parse_stat(pid: i32, line: &[u8]) -> Option<ProcInfo> {
@@ -249,7 +249,7 @@ fn parse_stat(pid: i32, line: &[u8]) -> Option<ProcInfo> {
 	})
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod sys {
 	use std::{
 		fs,

@@ -35,7 +35,12 @@ pub fn hash16(bytes: &[u8]) -> String {
 /// Private per-user directory that hosts relocated Unix sockets.
 #[cfg_attr(windows, allow(dead_code, reason = "pure helper unit-tested on every host"))]
 pub fn relocation_dir(euid: u32) -> String {
-	format!("/tmp/omp-{euid}")
+	// Android (Termux) apps cannot write `/tmp`; use the app's `$TMPDIR`.
+	if cfg!(target_os = "android") {
+		format!("{}/omp-{euid}", std::env::temp_dir().display())
+	} else {
+		format!("/tmp/omp-{euid}")
+	}
 }
 
 /// Unix socket path for `name` in the already-resolved `dir`.
@@ -166,7 +171,7 @@ mod tests {
 		let mut key = too_long.clone().into_bytes();
 		key.push(0);
 		key.extend_from_slice(name.as_bytes());
-		assert_eq!(relocated, format!("/tmp/omp-501/{}.sock", hash16(&key)));
+		assert_eq!(relocated, format!("{}/{}.sock", relocation_dir(501), hash16(&key)));
 		// Linux's larger sun_path keeps the same directory in place.
 		assert_eq!(unix_endpoint(&too_long, name, 501, 108), format!("{too_long}/n.sock"));
 	}
