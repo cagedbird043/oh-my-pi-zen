@@ -40,7 +40,7 @@ export interface IsolationOwner {
  */
 async function processStartToken(pid: number): Promise<string | null> {
 	if (process.platform === "win32") return null;
-	if (process.platform === "linux") {
+	if (process.platform === "linux" || process.platform === "android") {
 		let stat: string;
 		try {
 			stat = await Bun.file(`/proc/${pid}/stat`).text();

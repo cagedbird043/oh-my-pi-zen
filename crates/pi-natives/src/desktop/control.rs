@@ -534,7 +534,12 @@ impl ControlLease {
 	}
 
 	fn background() -> CoreResult<Self> {
-		Ok(Self { _escape: None, _kernel: KernelOwner::acquire()?, running: AtomicBool::new(false) })
+		Ok(Self {
+			#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+			_escape: None,
+			_kernel: KernelOwner::acquire()?,
+			running: AtomicBool::new(false),
+		})
 	}
 
 	#[cfg(not(target_os = "macos"))]
@@ -738,6 +743,7 @@ impl InputLease {
 	/// owns is waited for up to [`LEASE_WAIT`], ending shortly before the
 	/// operation's deadline; cancelling the operation ends the wait, and so does
 	/// a physical Escape when it waits to take over.
+	#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 	pub(crate) fn acquire(token: &OperationToken, takeover: bool) -> CoreResult<Self> {
 		Self::acquire_within(
 			token,
@@ -748,8 +754,18 @@ impl InputLease {
 		)
 	}
 
+	#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+	pub(crate) fn acquire(token: &OperationToken, _takeover: bool) -> CoreResult<Self> {
+		token.check()?;
+		Err(DesktopError::new(
+			ErrorCode::Unsupported,
+			"desktop input is unsupported on this operating system",
+		))
+	}
+
 	/// [`Self::acquire`] on the clock `now`, sleeping through `wait`; a takeover
 	/// operation transfers the stop armed while waiting into its acquired lease.
+	#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 	#[expect(clippy::used_underscore_binding, reason = "transfer the RAII monitor into the lease")]
 	fn acquire_within(
 		token: &OperationToken,
