@@ -568,7 +568,12 @@ impl ControlLease {
 	}
 
 	fn background() -> CoreResult<Self> {
-		Ok(Self { _escape: None, _kernel: KernelOwner::acquire()?, running: AtomicBool::new(false) })
+		Ok(Self {
+			#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+			_escape: None,
+			_kernel: KernelOwner::acquire()?,
+			running: AtomicBool::new(false),
+		})
 	}
 
 	#[cfg(not(target_os = "macos"))]
@@ -767,6 +772,7 @@ const LEASE_WAIT: Duration = Duration::from_secs(5);
 const LEASE_POLL: Duration = Duration::from_millis(50);
 
 /// A step of a takeover's admission ([`InputLease::acquire_admitted`]).
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Admit {
 	/// Wait, without the lease, until the backend lets the takeover start (on
@@ -776,12 +782,14 @@ pub(crate) enum Admit {
 	Recheck,
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 enum WaitingStop {
 	Unarmed,
 	Unsupported,
 	Watching(EscapeMonitor),
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 impl WaitingStop {
 	fn armed(monitor: Option<EscapeMonitor>) -> Self {
 		monitor.map_or(Self::Unsupported, Self::Watching)
@@ -794,6 +802,7 @@ impl InputLease {
 	/// owns is waited for up to [`LEASE_WAIT`], ending shortly before the
 	/// operation's deadline; cancelling the operation ends the wait, and so does
 	/// a physical Escape when it waits to take over.
+	#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 	pub(crate) fn acquire(token: &OperationToken, takeover: bool) -> CoreResult<Self> {
 		Self::acquire_within(
 			token,
@@ -810,6 +819,7 @@ impl InputLease {
 	/// is not kept out meanwhile, while the physical-Escape stop is armed;
 	/// once the lease is held it rechecks ([`Admit::Recheck`]), and when the
 	/// admission no longer holds it lets the lease go and waits again.
+	#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 	pub(crate) fn acquire_admitted(
 		token: &OperationToken,
 		admit: impl FnMut(Admit) -> CoreResult<bool>,
@@ -833,6 +843,7 @@ impl InputLease {
 
 	/// [`Self::acquire_admitted`], arming the stop with `arm` and taking the
 	/// lease with `acquire`.
+	#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 	fn admit_within(
 		token: &OperationToken,
 		mut admit: impl FnMut(Admit) -> CoreResult<bool>,
@@ -854,9 +865,19 @@ impl InputLease {
 		}
 	}
 
+	#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+	pub(crate) fn acquire(token: &OperationToken, _takeover: bool) -> CoreResult<Self> {
+		token.check()?;
+		Err(DesktopError::new(
+			ErrorCode::Unsupported,
+			"desktop input is unsupported on this operating system",
+		))
+	}
+
 	/// [`Self::acquire`] on the clock `now`, sleeping through `wait`; a takeover
 	/// operation transfers the stop armed while waiting, or the one `armed`
 	/// before it asked, into its acquired lease.
+	#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 	#[expect(clippy::used_underscore_binding, reason = "transfer the RAII monitor into the lease")]
 	fn acquire_within(
 		token: &OperationToken,

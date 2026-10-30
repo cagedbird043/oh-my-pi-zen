@@ -23,7 +23,6 @@ wayland-pipewire = ["dep:cc", "dep:pkg-config"]
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-arboard.workspace = true
 base64.workspace = true
 fontdue.workspace = true
 grep-matcher.workspace = true
@@ -71,6 +70,9 @@ tokio-util.workspace = true
 xutf.workspace = true
 zstd.workspace = true
 xxhash-rust.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "=0.11.1", default-features = false, features = ["tokio"] }

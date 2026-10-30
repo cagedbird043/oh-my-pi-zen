@@ -639,7 +639,7 @@ function sessionLeasePath(sessionId: string, createDir: boolean): string {
 	// filesystem; elsewhere the lock is a `flock` sidecar in that directory. The
 	// sidecars are empty and never removed: unlinking a flock file can split one
 	// lease between a holder of the old inode and a creator of a new one.
-	if (process.platform !== "linux" && process.platform !== "win32") {
+	if (process.platform !== "linux" && process.platform !== "android" && process.platform !== "win32") {
 		if (createDir) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 		// The test-run dir sits in the shared OS temp dir, where another local
 		// user could pre-create it or plant a symlink: refuse anything but a
