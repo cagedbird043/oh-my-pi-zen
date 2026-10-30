@@ -256,6 +256,9 @@ export function renderSearchResult(
 			header,
 			phase: sourceCount > 0 ? "success" : "warning",
 			sections: [
+				...(response.warnings ?? []).map(warning => ({
+					content: [theme.fg("warning", replaceTabs(warning.message))],
+				})),
 				...(queryPreview
 					? [
 							{
@@ -389,14 +392,17 @@ function describeSearchResult(
 					"sources",
 				)
 			: noteText("No sources returned");
+	const body: NativeChild[] = [];
+	for (const warning of response.warnings ?? []) {
+		body.push(text([span(plainText(warning.message), "warning")]));
+	}
+	if (answer) body.push({ ...md(plainText(answer), { title: tooltip }), key: "answer" });
+	else if (sources.length === 0) body.push(noteText(rawText || "No answer text returned"));
+	body.push(sourceGrid);
 	return {
 		tool: searchHead(query, `${providerLabel} · ${formatCount("source", sources.length)}`, badge),
 		tone: sources.length > 0 ? undefined : "warning",
-		body: answer
-			? [{ ...md(plainText(answer), { title: tooltip }), key: "answer" }, sourceGrid]
-			: sources.length > 0
-				? [sourceGrid]
-				: [noteText(rawText || "No answer text returned"), sourceGrid],
+		body,
 	};
 }
 
