@@ -6,18 +6,21 @@
 
 ## 分支与跟进
 
-- `zen/main` 只建立在 upstream release tag 上，跟进新 tag 用 rebase，不 merge。
-- upstream 的文件尽量不改；必须改的地方改动要小且集中，降低 rebase 冲突。
+- `zen/main` 只建立在 upstream release tag 上。手动跟进新 tag 时，记录旧基底 tag 和 `zen/main` 的旧 SHA，从旧 SHA 创建临时候选分支，在候选分支执行 `git rebase --onto <新tag> <旧tag>`。
+- 跟进前列出旧 upstream tag 到 `zen/main` 的补丁清单，逐项确认保留、上游已覆盖或需要适配；验收前保留原 `zen/main` 不动。
+- 每个补丁的冲突解决与适配归入该主题提交；用 `git range-diff <旧tag>..<旧SHA> <新tag>..<候选分支>` 对照清单核验补丁栈，并检查新 tag 之上的最终差异。完成测试、实际 smoke 和代码审查，验收通过再将 `zen/main` 指向候选结果，以记录的旧 SHA 为显式 lease 推送。
+- upstream 的文件尽量不改；必须改的地方改动要小且集中，降低补丁适配冲突。
 - zen 专属内容放在 upstream 没有的路径（如本文件、`.omp/config.yml`、`.github/workflows/zen-*.yml`）。
 - upstream 的 workflow（`ci.yml`、`bun-cache-warm.yml`、`nix.yml`）在仓库设置里停用，文件不改。
 
 ## 提交组织
 
-- 每个 zen 补丁是一个按主题划分的独立提交，提交信息用中文，带 `zen` 相关前缀便于识别。
-- 修改已有补丁用 `git commit --fixup=<该补丁提交>`，再 `git rebase -i --autosquash <upstream tag>` 合并回去；
-  不要在补丁之上堆叠零散的修补提交。
-- 推送 `zen/main` 使用 `git push --force-with-lease`。
-- 计划回馈上游的补丁先随 zen 发布自用；之后发现的问题都 fixup 回该补丁，用一段时间确认稳定后再整理成上游 PR。
+- 每个 zen 补丁按主题组织，提交信息用中文，带 `zen` 相关前缀便于识别。
+- 平时迭代在栈顶新开提交，不 fixup 进底下的主题提交；已推送的中间状态保留，可以逐个回看和单独撤回。
+- 补丁栈间歇性整理：手动跟进新 upstream tag 时，或用户要求整理时，才在 `git rebase -i <upstream tag>` 里按主题把迭代提交 squash/fixup 进各自的主题提交。
+- 整理补丁栈前记录旧 SHA；整理后 `git diff <旧SHA> HEAD` 只能出现有意的改动，并用 `git rebase <upstream tag> -x 'bun check'` 确认每个提交都能单独通过检查。
+- 改写过历史的推送一律用带明确旧值的租约：`git push --force-with-lease=zen/main:<旧SHA> origin HEAD:refs/heads/zen/main`；普通追加提交直接快进推送。
+- 计划回馈上游的补丁先随 zen 发布自用；之后的修正同样先在栈顶新开提交，间歇性整理时并回该补丁，用一段时间确认稳定后再整理成上游 PR。
   当前在此状态的：`feat(zen): 流式输出按行定稿…`（对应上游 #13676，含流式高亮漏复位码的 TS 修复）。
 
 ## 版本与发布
