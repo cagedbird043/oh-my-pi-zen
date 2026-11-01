@@ -1,5 +1,16 @@
 # Changelog
 
+## [18.15.0-zen.1] - 2026-11-02
+
+### Changed
+
+- 跟进上游 18.15.0，保留全部 zen 功能补丁，包括流式按行定稿、`/redraw`、KDE 隔离桌面、Termux、collab 优化、会话正文搜索、AnySearch 和内置生图。
+  Rebased onto upstream 18.15.0, retaining all zen feature patches, including streamed line settlement, `/redraw`, the isolated KDE desktop, Termux, collab optimizations, transcript search, AnySearch, and built-in image generation.
+- 原生 task 的可选参数空占位兼容保留，并遵循上游新增的逐次模型选择权限；普通角色路由不变。
+  Native task calls retain optional-placeholder compatibility while respecting upstream per-call model permissions; ordinary role routing is unchanged.
+- npm 发布包的仓库地址更新为迁移后的 `cagedbird043/oh-my-pi-zen`。
+  Published npm packages now point to the migrated `cagedbird043/oh-my-pi-zen` repository.
+
 ## [18.14.0-zen.2] - 2026-10-31
 
 ### Added
