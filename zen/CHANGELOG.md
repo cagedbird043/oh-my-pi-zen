@@ -1,5 +1,12 @@
 # Changelog
 
+## [18.15.0-zen.2] - 2026-11-02
+
+### Fixed
+
+- 未安装 PipeWire 的 Linux/VPS 现在也能正常启动 omp；仅在调用 Wayland 屏幕捕获时加载相关库，缺库或库不兼容时明确提示原因和安装建议。
+  Linux/VPS hosts without PipeWire can now start omp normally; the runtime is loaded only for Wayland screen capture, with actionable diagnostics for missing or incompatible libraries.
+
 ## [18.15.0-zen.1] - 2026-11-02
 
 ### Changed
