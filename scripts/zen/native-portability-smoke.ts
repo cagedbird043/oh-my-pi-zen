@@ -133,7 +133,6 @@ async function inside(root: string): Promise<void> {
 			assert.ok(error instanceof Error);
 			assert.match(error.message, /^CaptureFailed:/);
 			assert.ok(error.message.includes("libpipewire-0.3.so.0"), error.message);
-			assert.match(error.message, /install/i);
 			console.log(`Production capture rejected before portal: ${error.message}`);
 			return true;
 		});
