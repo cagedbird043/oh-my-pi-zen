@@ -1,5 +1,14 @@
 # Changelog
 
+## [18.16.0-zen.1] - 2026-11-03
+
+### Changed
+
+- 跟进上游 18.16.0，保留全部 zen 功能，包括流式按行定稿、`/redraw`、KDE 隔离桌面、Termux、collab 大会话优化、会话正文搜索、AnySearch、内置生图和可选 PipeWire。
+  Rebased onto upstream 18.16.0, retaining all zen features, including streamed line settlement, `/redraw`, the isolated KDE desktop, Termux, large-session collab optimizations, transcript search, AnySearch, built-in image generation, and optional PipeWire.
+- 离线 HTML 导出采用上游的流式写入，降低大会话导出时的内存占用，同时保留内嵌查看器、Markdown 和语法高亮，无需联网即可查看。
+  Offline HTML exports use upstream's streaming writer to reduce memory use for large sessions while retaining the embedded viewer, Markdown, and syntax highlighting without network access.
+
 ## [18.15.0-zen.2] - 2026-11-02
 
 ### Fixed
