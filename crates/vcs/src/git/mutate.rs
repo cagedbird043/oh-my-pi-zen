@@ -91,25 +91,22 @@ pub(crate) fn update_reference(
 /// `expected` is the commit the update started from. `actual` is the value that
 /// broke the swap; a reference that disappeared leaves it `None`, the same way
 /// an unborn HEAD is reported.
-fn head_moved_at_commit(
-	expected: Option<gix::hash::ObjectId>,
-	err: &gix::reference::edit::Error,
-) -> Option<Error> {
-	let gix::reference::edit::Error::FileTransactionPrepare(prepare) = err else {
+fn head_moved_at_commit(expected: Option<gix::hash::ObjectId>, err: &gix::Error) -> Option<Error> {
+	use gix::refs::file::transaction::prepare::{MustNotExist, ReferenceOutOfDate};
+
+	let actual = if let Some(changed) = err.downcast_any_ref::<ReferenceOutOfDate>() {
+		changed.actual.try_id().map(|id| id.to_hex().to_string())
+	} else if let Some(changed) = err.downcast_any_ref::<MustNotExist>() {
+		changed.actual.try_id().map(|id| id.to_hex().to_string())
+	} else if err
+		.metadata()
+		.any(|context| context.contains_key("referent"))
+		&& err.classify().any(|cause| {
+			cause.class() == gix::error::Class::NotFound && cause.error().is::<gix::error::Message>()
+		}) {
+		None
+	} else {
 		return None;
-	};
-	let actual = match prepare {
-		gix::refs::file::transaction::prepare::Error::ReferenceOutOfDate {
-			actual: gix::refs::Target::Object(id),
-			..
-		}
-		| gix::refs::file::transaction::prepare::Error::MustNotExist {
-			actual: gix::refs::Target::Object(id),
-			..
-		} => Some(id.to_hex().to_string()),
-		gix::refs::file::transaction::prepare::Error::ReferenceOutOfDate { .. }
-		| gix::refs::file::transaction::prepare::Error::MustExist { .. } => None,
-		_ => return None,
 	};
 	Some(Error::HeadMoved { expected: commit_head_label(expected), actual })
 }
@@ -265,7 +262,6 @@ impl GitRepo {
 		let sign = repo
 			.config_snapshot()
 			.try_boolean("commit.gpgSign")
-			.transpose()
 			.map_err(|err| Error::backend("git commit read commit.gpgSign", err))?
 			.unwrap_or(false);
 		let index_path = options.index_path.as_deref();
@@ -1116,7 +1112,7 @@ impl GitRepo {
 				&interrupt,
 				checkout_options,
 			)
-			.map_err(|err| Error::backend("git worktree add", with_causes(&err)))?;
+			.map_err(|err| Error::backend("git worktree add", err.to_string()))?;
 			if !outcome.collisions.is_empty() || !outcome.errors.is_empty() {
 				return Err(Error::backend(
 					"git worktree add",
@@ -1328,7 +1324,7 @@ fn hook_configured(repository: &GitRepo, name: &str) -> Result<bool> {
 			section
 				.values("event")
 				.iter()
-				.any(|event| event.as_ref() == name)
+				.any(|event| event.as_slice() == name.as_bytes())
 		}))
 }
 
@@ -2006,7 +2002,7 @@ fn checkout_tree(
 		&interrupt,
 		opts,
 	)
-	.map_err(|e| Error::backend("git checkout", with_causes(&e)))?;
+	.map_err(|e| Error::backend("git checkout", e.to_string()))?;
 	target
 		.write(INDEX_WRITE)
 		.map_err(|e| Error::backend("git checkout", e))
@@ -2401,19 +2397,6 @@ fn git_metadata_path(path: &Path) -> Cow<'_, str> {
 	}
 }
 
-/// `err` followed by its causes: gix's checkout errors name the operation but
-/// keep the OS error in their source.
-fn with_causes(err: &dyn std::error::Error) -> String {
-	let mut message = err.to_string();
-	let mut cause = err.source();
-	while let Some(err) = cause {
-		message.push_str(": ");
-		message.push_str(&err.to_string());
-		cause = err.source();
-	}
-	message
-}
-
 fn register_worktree(path: &Path, common: &Path, head: &str) -> Result<PathBuf> {
 	fs::create_dir_all(path)?;
 	let name = worktree_admin_name(common, path);
@@ -2677,7 +2660,7 @@ mod tests {
 	use tempfile::TempDir;
 
 	use super::*;
-	use crate::types::CommitAuthor;
+	use crate::types::{CommitAuthor, DiffOptions};
 
 	fn git(dir: &Path, args: &[&str]) -> String {
 		let output = Command::new("git")
@@ -2829,6 +2812,34 @@ mod tests {
 				if *expected == base && actual.as_deref() == Some(moved.as_str())));
 			assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), moved);
 		}
+	}
+
+	#[test]
+	fn commit_expected_head_distinguishes_missing_ref_from_write_failure() {
+		let (temp, repo) = fixture();
+		let base = git(temp.path(), &["rev-parse", "HEAD"]);
+		let hook = temp.path().join(".git/hooks/commit-msg");
+		fs::create_dir_all(hook.parent().unwrap()).unwrap();
+		let options = CommitOptions {
+			allow_empty: true,
+			expected_head: Some(base.clone()),
+			..Default::default()
+		};
+
+		// The hook runs after validating expected_head, but before updating HEAD.
+		write_hook(&hook, ": > .git/refs/heads/main.lock", true);
+		let err = repo.commit_create("locked branch", &options).unwrap_err();
+		assert!(matches!(&err, Error::Backend { context: "git commit", .. }), "{err:?}");
+		assert_eq!(repo.head_sha().unwrap().as_deref(), Some(base.as_str()));
+
+		fs::remove_file(temp.path().join(".git/refs/heads/main.lock")).unwrap();
+		write_hook(&hook, "git update-ref -d refs/heads/main", true);
+		let err = repo.commit_create("deleted branch", &options).unwrap_err();
+		assert!(
+			matches!(&err, Error::HeadMoved { expected, actual: None } if expected == &base),
+			"{err:?}",
+		);
+		assert_eq!(repo.head_sha().unwrap(), None);
 	}
 
 	#[cfg(unix)]
@@ -4197,5 +4208,56 @@ mod tests {
 				 prefix neighbors"
 			);
 		}
+	}
+
+	/// A source whose objects already borrow from a pool (`--reference` /
+	/// `--shared`) gets that pool written twice into the detached copy: once
+	/// directly and once through the source's own alternates. Git accepts the
+	/// duplicate; the copy must open and diff instead of reporting a cycle.
+	#[test]
+	fn detached_copy_of_shared_clone_reads_borrowed_objects() {
+		let (pool_source, _) = fixture();
+		let temp = tempfile::tempdir().unwrap();
+		let pool = temp.path().join("pool.git");
+		let source = temp.path().join("source");
+		git(temp.path(), &[
+			"clone",
+			"-q",
+			"--bare",
+			pool_source.path().to_str().unwrap(),
+			pool.to_str().unwrap(),
+		]);
+		git(temp.path(), &[
+			"clone",
+			"-q",
+			"--shared",
+			pool.to_str().unwrap(),
+			source.to_str().unwrap(),
+		]);
+		git(&source, &["config", "user.name", "Test"]);
+		git(&source, &["config", "user.email", "test@example.com"]);
+		let repo = GitRepo::require(&source).unwrap();
+		let linked = temp.path().join("linked");
+		repo
+			.worktree_add(&linked, "main", WorktreeAddOptions {
+				detach:       true,
+				clone:        WorktreeClone::Off,
+				keep_changes: false,
+			})
+			.unwrap();
+		let common = fs::canonicalize(repo.info().common_dir.clone()).unwrap();
+		assert_eq!(detach_git_dir(&linked, &common).unwrap(), DetachGitDirResult::Detached);
+		let alternates = fs::read_to_string(linked.join(".git/objects/info/alternates")).unwrap();
+		assert_eq!(
+			alternates.lines().count(),
+			2,
+			"source objects plus the chained pool: {alternates}"
+		);
+
+		fs::write(linked.join("a"), "changed\n").unwrap();
+		let detached = GitRepo::require(&linked).unwrap();
+		let diff = detached.diff_text(&DiffOptions::default()).unwrap();
+		assert!(diff.contains("-one\n+changed\n"), "{diff}");
+		assert_eq!(detached.head_sha().unwrap(), Some(git(&source, &["rev-parse", "HEAD"])));
 	}
 }
