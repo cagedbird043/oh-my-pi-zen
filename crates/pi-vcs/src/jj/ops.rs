@@ -11,7 +11,7 @@ use std::{
 
 use futures::TryStreamExt as _;
 use jj_lib::{
-	backend::CommitId,
+	backend::{CommitId, MergedTreeValue},
 	commit::Commit,
 	config::{ConfigSource, StackedConfig},
 	conflicts::{ConflictMarkerStyle, ConflictMaterializeOptions, materialize_tree_value},
@@ -23,7 +23,7 @@ use jj_lib::{
 	},
 	gitignore::GitIgnoreFile,
 	matchers::{EverythingMatcher, NothingMatcher},
-	merge::{Diff, MergedTreeValue},
+	merge::Diff,
 	merged_tree::MergedTree,
 	object_id::{HexPrefix, ObjectId as _, PrefixResolution},
 	repo::{ReadonlyRepo, Repo},
@@ -76,7 +76,7 @@ impl JjWorkspace {
 
 				let mut candidates = BTreeSet::new();
 				for (_, target) in repo.view().local_bookmarks() {
-					for id in target.added_ids() {
+					for id in target.adds().flatten() {
 						if repo
 							.index()
 							.is_ancestor(id, &wc_id)
@@ -103,6 +103,7 @@ impl JjWorkspace {
 
 				let prefix_len = repo
 					.shortest_unique_change_id_prefix_len(wc_commit.change_id())
+					.await
 					.map_err(|err| Error::backend("jj log", err))?
 					.max(8);
 				let change_id = wc_commit.change_id().reverse_hex();
@@ -236,6 +237,7 @@ impl JjWorkspace {
 				for commit in commits {
 					let prefix_len = repo
 						.shortest_unique_change_id_prefix_len(commit.change_id())
+						.await
 						.map_err(|err| Error::backend("jj log", err))?
 						.max(8);
 					let change_id = commit.change_id().reverse_hex();
@@ -252,7 +254,8 @@ impl JjWorkspace {
 		let rev = rev.to_owned();
 		self.with_current_repo("jj show", move |workspace, repo| {
 			Box::pin(async move {
-				let commit_id = resolve_commit_id(workspace, repo.as_ref(), &rev)?
+				let commit_id = resolve_commit_id(workspace, repo.as_ref(), &rev)
+					.await?
 					.ok_or_else(|| Error::ObjectNotFound { spec: rev.clone() })?;
 				let commit = repo
 					.store()
@@ -415,7 +418,11 @@ fn commit_subject(commit: &Commit) -> String {
 		.to_owned()
 }
 
-fn resolve_commit_id(
+#[allow(
+	clippy::future_not_send,
+	reason = "driven on a per-call current-thread runtime; `&dyn Repo` is !Send"
+)]
+async fn resolve_commit_id(
 	workspace: &Workspace,
 	repo: &dyn Repo,
 	rev: &str,
@@ -429,6 +436,7 @@ fn resolve_commit_id(
 	if let Some(prefix) = HexPrefix::try_from_reverse_hex(rev) {
 		let resolution = repo
 			.resolve_change_id_prefix(&prefix)
+			.await
 			.map_err(|err| Error::backend("jj show", err))?;
 		if let PrefixResolution::SingleMatch(targets) = resolution {
 			let mut visible = targets.visible_with_offsets().map(|(_, id)| id.clone());
@@ -442,6 +450,7 @@ fn resolve_commit_id(
 		let resolution = repo
 			.index()
 			.resolve_commit_id_prefix(&prefix)
+			.await
 			.map_err(|err| Error::backend("jj show", err))?;
 		if let PrefixResolution::SingleMatch(id) = resolution {
 			return Ok(Some(id));
@@ -459,7 +468,7 @@ fn user_settings() -> std::result::Result<UserSettings, jj_lib::config::ConfigGe
 			let _ = config.load_file(ConfigSource::User, &path);
 		}
 	}
-	UserSettings::from_config(config)
+	UserSettings::from_config_and_home_dir(config, std::env::home_dir())
 }
 
 fn user_config_paths() -> Vec<PathBuf> {

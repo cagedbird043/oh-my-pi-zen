@@ -200,7 +200,6 @@ impl GitRepo {
 		let sign = repo
 			.config_snapshot()
 			.try_boolean("commit.gpgSign")
-			.transpose()
 			.map_err(|err| Error::backend("git commit read commit.gpgSign", err))?
 			.unwrap_or(false);
 		let index_path = options.index_path.as_deref();
@@ -978,7 +977,7 @@ impl GitRepo {
 				&interrupt,
 				checkout_options,
 			)
-			.map_err(|err| Error::backend("git worktree add", with_causes(&err)))?;
+			.map_err(|err| Error::backend("git worktree add", err.to_string()))?;
 			if !outcome.collisions.is_empty() || !outcome.errors.is_empty() {
 				return Err(Error::backend(
 					"git worktree add",
@@ -1190,7 +1189,7 @@ fn hook_configured(repository: &GitRepo, name: &str) -> Result<bool> {
 			section
 				.values("event")
 				.iter()
-				.any(|event| event.as_ref() == name)
+				.any(|event| event.as_slice() == name.as_bytes())
 		}))
 }
 
@@ -1868,7 +1867,7 @@ fn checkout_tree(
 		&interrupt,
 		opts,
 	)
-	.map_err(|e| Error::backend("git checkout", with_causes(&e)))?;
+	.map_err(|e| Error::backend("git checkout", e.to_string()))?;
 	target
 		.write(INDEX_WRITE)
 		.map_err(|e| Error::backend("git checkout", e))
@@ -2171,19 +2170,6 @@ fn git_metadata_path(path: &Path) -> Cow<'_, str> {
 	}
 }
 
-/// `err` followed by its causes: gix's checkout errors name the operation but
-/// keep the OS error in their source.
-fn with_causes(err: &dyn std::error::Error) -> String {
-	let mut message = err.to_string();
-	let mut cause = err.source();
-	while let Some(err) = cause {
-		message.push_str(": ");
-		message.push_str(&err.to_string());
-		cause = err.source();
-	}
-	message
-}
-
 fn register_worktree(path: &Path, common: &Path, head: &str) -> Result<PathBuf> {
 	fs::create_dir_all(path)?;
 	let name = worktree_admin_name(common, path);
@@ -2447,7 +2433,7 @@ mod tests {
 	use tempfile::TempDir;
 
 	use super::*;
-	use crate::types::CommitAuthor;
+	use crate::types::{CommitAuthor, DiffOptions};
 
 	fn git(dir: &Path, args: &[&str]) -> String {
 		let output = Command::new("git")
@@ -3929,5 +3915,56 @@ mod tests {
 				 prefix neighbors"
 			);
 		}
+	}
+
+	/// A source whose objects already borrow from a pool (`--reference` /
+	/// `--shared`) gets that pool written twice into the detached copy: once
+	/// directly and once through the source's own alternates. Git accepts the
+	/// duplicate; the copy must open and diff instead of reporting a cycle.
+	#[test]
+	fn detached_copy_of_shared_clone_reads_borrowed_objects() {
+		let (pool_source, _) = fixture();
+		let temp = tempfile::tempdir().unwrap();
+		let pool = temp.path().join("pool.git");
+		let source = temp.path().join("source");
+		git(temp.path(), &[
+			"clone",
+			"-q",
+			"--bare",
+			pool_source.path().to_str().unwrap(),
+			pool.to_str().unwrap(),
+		]);
+		git(temp.path(), &[
+			"clone",
+			"-q",
+			"--shared",
+			pool.to_str().unwrap(),
+			source.to_str().unwrap(),
+		]);
+		git(&source, &["config", "user.name", "Test"]);
+		git(&source, &["config", "user.email", "test@example.com"]);
+		let repo = GitRepo::require(&source).unwrap();
+		let linked = temp.path().join("linked");
+		repo
+			.worktree_add(&linked, "main", WorktreeAddOptions {
+				detach:       true,
+				clone:        WorktreeClone::Off,
+				keep_changes: false,
+			})
+			.unwrap();
+		let common = fs::canonicalize(repo.info().common_dir.clone()).unwrap();
+		assert_eq!(detach_git_dir(&linked, &common).unwrap(), DetachGitDirResult::Detached);
+		let alternates = fs::read_to_string(linked.join(".git/objects/info/alternates")).unwrap();
+		assert_eq!(
+			alternates.lines().count(),
+			2,
+			"source objects plus the chained pool: {alternates}"
+		);
+
+		fs::write(linked.join("a"), "changed\n").unwrap();
+		let detached = GitRepo::require(&linked).unwrap();
+		let diff = detached.diff_text(&DiffOptions::default()).unwrap();
+		assert!(diff.contains("-one\n+changed\n"), "{diff}");
+		assert_eq!(detached.head_sha().unwrap(), Some(git(&source, &["rev-parse", "HEAD"])));
 	}
 }
