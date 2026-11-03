@@ -1,5 +1,17 @@
 # Changelog
 
+## [18.16.0-zen.2] - 2026-11-03
+
+### Fixed
+
+- 子模块或仓库通过 `--reference`/`--shared` 借用共享对象池时，isolated task 不再因 `Alternates form a cycle` 无法建立基线。
+  Isolated tasks no longer fail with `Alternates form a cycle` when a repository or submodule borrows objects from a shared pool via `--reference`/`--shared`.
+
+### Changed
+
+- 内置 git 引擎升级到 gitoxide 0.88（jj-lib 0.46）；三方合并与 git 一致，相邻行的改动视为冲突。
+  The built-in git engine moves to gitoxide 0.88 (jj-lib 0.46); three-way merges now match git and treat edits on adjacent lines as conflicts.
+
 ## [18.16.0-zen.1] - 2026-11-03
 
 ### Changed
