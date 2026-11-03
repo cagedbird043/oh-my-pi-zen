@@ -196,7 +196,6 @@ impl GitRepo {
 		let sign = repo
 			.config_snapshot()
 			.try_boolean("commit.gpgSign")
-			.transpose()
 			.map_err(|err| Error::backend("git commit read commit.gpgSign", err))?
 			.unwrap_or(false);
 		run_commit_hook(self, "pre-commit", &[])?;
@@ -2103,7 +2102,7 @@ mod tests {
 	use tempfile::TempDir;
 
 	use super::*;
-	use crate::types::CommitAuthor;
+	use crate::types::{CommitAuthor, DiffOptions};
 
 	fn git(dir: &Path, args: &[&str]) -> String {
 		let output = Command::new("git")
@@ -3193,5 +3192,56 @@ mod tests {
 		);
 		assert!(repo.worktree_prune().is_ok());
 		let _ = fs::remove_dir_all(linked);
+	}
+
+	/// A source whose objects already borrow from a pool (`--reference` /
+	/// `--shared`) gets that pool written twice into the detached copy: once
+	/// directly and once through the source's own alternates. Git accepts the
+	/// duplicate; the copy must open and diff instead of reporting a cycle.
+	#[test]
+	fn detached_copy_of_shared_clone_reads_borrowed_objects() {
+		let (pool_source, _) = fixture();
+		let temp = tempfile::tempdir().unwrap();
+		let pool = temp.path().join("pool.git");
+		let source = temp.path().join("source");
+		git(temp.path(), &[
+			"clone",
+			"-q",
+			"--bare",
+			pool_source.path().to_str().unwrap(),
+			pool.to_str().unwrap(),
+		]);
+		git(temp.path(), &[
+			"clone",
+			"-q",
+			"--shared",
+			pool.to_str().unwrap(),
+			source.to_str().unwrap(),
+		]);
+		git(&source, &["config", "user.name", "Test"]);
+		git(&source, &["config", "user.email", "test@example.com"]);
+		let repo = GitRepo::require(&source).unwrap();
+		let linked = temp.path().join("linked");
+		repo
+			.worktree_add(&linked, "main", WorktreeAddOptions {
+				detach:       true,
+				clone:        WorktreeClone::Off,
+				keep_changes: false,
+			})
+			.unwrap();
+		let common = fs::canonicalize(repo.info().common_dir.clone()).unwrap();
+		assert_eq!(detach_git_dir(&linked, &common).unwrap(), DetachGitDirResult::Detached);
+		let alternates = fs::read_to_string(linked.join(".git/objects/info/alternates")).unwrap();
+		assert_eq!(
+			alternates.lines().count(),
+			2,
+			"source objects plus the chained pool: {alternates}"
+		);
+
+		fs::write(linked.join("a"), "changed\n").unwrap();
+		let detached = GitRepo::require(&linked).unwrap();
+		let diff = detached.diff_text(&DiffOptions::default()).unwrap();
+		assert!(diff.contains("-one\n+changed\n"), "{diff}");
+		assert_eq!(detached.head_sha().unwrap(), Some(git(&source, &["rev-parse", "HEAD"])));
 	}
 }
