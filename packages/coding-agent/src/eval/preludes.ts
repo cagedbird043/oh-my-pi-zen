@@ -46,7 +46,8 @@ export interface EvalPreludeDefinition {
 	summary?: string;
 	/**
 	 * Render `documentation` in the eval tool description instead of linking it
-	 * as an `help://eval/<name>` topic, so the first call needs no `read`.
+	 * as a `help://eval/<name>` topic, so the first call needs no `read`.
+	 * `tools.commandDocs: catalog` keeps the topic on demand.
 	 */
 	inlineDocumentation?: boolean;
 	/**
