@@ -71,7 +71,8 @@ import {
 import { cfgTaskMaxRecursionDepth, perCallModelEnabled } from "../task/settings";
 import { getPerCallModelAdvertisement, type PerCallModelAdvertisement } from "../task/model-approval";
 import { shapeToolResult } from "../spotlight";
-import { cfgToolsMaxTimeout, cfgToolsSpeculativeExecutionEnabled } from "./settings";
+import { cfgToolsMaxTimeout, cfgToolsSpeculativeExecutionEnabled, cfgToolsXdevDocs } from "./settings";
+import type { XdevDocsMode } from "./xdev";
 
 /** Language tokens the eval tool accepts, in stable display order. */
 export type EvalLanguageToken = "py" | "js";
@@ -191,8 +192,10 @@ export interface EvalToolDescriptionOptions {
 	eagerDelegation?: boolean;
 	/** Point blocked callers at the `wait` tool; false when the session lacks it (subagents). Default: true. */
 	waitTool?: boolean;
-	/** Enabled preludes; each becomes an `xd://eval/<name>` doc topic, inlined when it asks to be. */
+	/** Enabled preludes; each becomes an `xd://eval/<name>` doc topic, inlined when it asks to be and `preludeDocs` allows it. */
 	preludes?: readonly Pick<EvalPreludeDefinition, "name" | "documentation" | "inlineDocumentation">[];
+	/** `tools.xdevDocs` policy: `catalog` links every prelude, even one that asks to be inlined. Default: `inline`. */
+	preludeDocs?: XdevDocsMode;
 	/**
 	 * Inline every doc topic instead of linking `xd://eval/<topic>`. Required
 	 * when the session cannot `read` (the only transport for topic docs).
@@ -256,7 +259,7 @@ export function getEvalToolDescription(options: EvalToolDescriptionOptions = {})
 	const preludes: { name: string; summary: string }[] = [];
 	const inlinePreludes: { name: string; documentation: string }[] = [];
 	for (const prelude of options.preludes ?? []) {
-		if (prelude.inlineDocumentation && !options.inlineTopics) {
+		if (prelude.inlineDocumentation && !options.inlineTopics && options.preludeDocs !== "catalog") {
 			const documentation = prelude.documentation.trim();
 			if (documentation) inlinePreludes.push({ name: prelude.name, documentation });
 			continue;
@@ -402,6 +405,7 @@ export class EvalTool implements AgentTool<typeof evalSchema> {
 			eagerDelegation: sessionDelegationBias(session) === "eager",
 			waitTool: hasWaitTool(session),
 			preludes: this.#advertisedPreludes(session),
+			preludeDocs: cfgToolsXdevDocs.get(session.settings),
 			inlineTopics: session.isToolActive?.("read") === false,
 			autoProvision: cfgEvalAutoProvision.get(session.settings),
 			perCallModel,
