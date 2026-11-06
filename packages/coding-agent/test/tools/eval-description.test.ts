@@ -209,7 +209,7 @@ describe("eval tool description", () => {
 		expect(tool.docTopics().fixture).toBeUndefined();
 	});
 
-	it("inlines a prelude's documentation when it asks to, without the link", () => {
+	it("honors catalog mode when a prelude requests inline documentation", () => {
 		const prelude: EvalPreludeDefinition = {
 			name: "fixture",
 			documentation: "Fixture summary line.\n\nINLINE PRELUDE DOCUMENTATION",
@@ -221,15 +221,25 @@ describe("eval tool description", () => {
 				return { content: [] };
 			},
 		};
-		const tool = new EvalTool(makeSession({ preludes: () => [prelude] }));
+		const tool = new EvalTool(
+			makeSession({ preludes: () => [prelude], settings: { "tools.commandDocs": "builtins" } }),
+		);
 		expect(tool.description).toContain("<fixture>");
 		expect(tool.description).toContain("INLINE PRELUDE DOCUMENTATION");
 		expect(tool.description).not.toContain("help://eval/fixture");
 		expect(tool.docTopics().fixture).toContain("INLINE PRELUDE DOCUMENTATION");
-		const withoutRead = new EvalTool(makeSession({ preludes: () => [prelude], readActive: false }));
+		const withoutRead = new EvalTool(
+			makeSession({ preludes: () => [prelude], readActive: false, settings: { "tools.commandDocs": "catalog" } }),
+		);
 		expect(withoutRead.description.split("INLINE PRELUDE DOCUMENTATION")).toHaveLength(2);
 		expect(withoutRead.description).not.toContain("<fixture>");
 		expect(withoutRead.description).not.toContain("help://eval/fixture");
+		const catalog = new EvalTool(
+			makeSession({ preludes: () => [prelude], settings: { "tools.commandDocs": "catalog" } }),
+		);
+		expect(catalog.description).toContain("`fixture`: Fixture summary line. → help://eval/fixture");
+		expect(catalog.description).not.toContain("INLINE PRELUDE DOCUMENTATION");
+		expect(catalog.docTopics().fixture).toContain("INLINE PRELUDE DOCUMENTATION");
 	});
 
 	it("keeps first-call guides out of a session without a guide delivery channel", () => {

@@ -58,7 +58,7 @@ import {
 import { cfgTaskMaxRecursionDepth, perCallModelEnabled } from "../task/settings";
 import { getPerCallModelAdvertisement } from "../task/model-approval";
 import { shapeToolResult } from "../spotlight";
-import { cfgToolsMaxTimeout, cfgToolsSpeculativeExecutionEnabled } from "./settings";
+import { cfgToolsCommandDocs, cfgToolsMaxTimeout, cfgToolsSpeculativeExecutionEnabled } from "./settings";
 
 /** Language tokens the eval tool accepts, in stable display order. */
 export type EvalLanguageToken = "py" | "js";
@@ -170,7 +170,7 @@ export function getEvalToolDescription(options: EvalToolDescriptionOptions = {})
 	const firstCallPreludes: { name: string; summary: string }[] = [];
 	const inlinePreludes: { name: string; documentation: string }[] = [];
 	for (const prelude of options.preludes ?? []) {
-		if (prelude.inlineDocumentation && !options.inlineTopics) {
+		if (prelude.inlineDocumentation && !options.inlineTopics && !options.catalogPreludes) {
 			const documentation = prelude.documentation.trim();
 			if (documentation) inlinePreludes.push({ name: prelude.name, documentation });
 			continue;
@@ -328,6 +328,7 @@ export class EvalTool implements AgentTool<typeof evalSchema> {
 			eagerDelegation: sessionDelegationBias(session) === "eager",
 			waitTool: hasWaitTool(session),
 			preludes: this.#advertisedPreludes(session),
+			catalogPreludes: cfgToolsCommandDocs.get(session.settings) === "catalog",
 			inlineTopics: !docTopicsReadable(session),
 			firstCallGuides: session.noteEvalPreludeCall !== undefined,
 			autoProvision: cfgEvalAutoProvision.get(session.settings),
