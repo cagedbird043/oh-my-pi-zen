@@ -27,13 +27,15 @@ export interface EvalToolDescriptionOptions {
 	eagerDelegation?: boolean;
 	/** Point blocked callers at the `wait` tool; false when the session lacks it (subagents). Default: true. */
 	waitTool?: boolean;
-	/** Enabled preludes; each becomes an `help://eval/<name>` doc topic, inlined when it asks to be. */
+	/** Enabled preludes; each becomes a `help://eval/<name>` topic, inlined when it asks to be. */
 	preludes?: readonly Pick<
 		EvalPreludeDefinition,
 		"name" | "documentation" | "summary" | "inlineDocumentation" | "firstCallDocumentation"
 	>[];
 	/** The session can send first-call guides; without it such a prelude is listed as read-first. */
 	firstCallGuides?: boolean;
+	/** Link preludes instead of inlining them when their help is readable on demand. */
+	catalogPreludes?: boolean;
 	/**
 	 * Inline every doc topic instead of linking `help://eval/<topic>`. Required
 	 * when the session cannot `read` (the only transport for topic docs).
