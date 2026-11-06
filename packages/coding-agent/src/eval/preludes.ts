@@ -42,6 +42,7 @@ export interface EvalPreludeDefinition {
 	/**
 	 * Render `documentation` in the eval tool description instead of linking it
 	 * as an `xd://eval/<name>` topic, so the first call needs no `read`.
+	 * `tools.xdevDocs: catalog` overrides this and keeps the link.
 	 */
 	inlineDocumentation?: boolean;
 	/** JavaScript source installed into an ordinary JavaScript eval realm. */

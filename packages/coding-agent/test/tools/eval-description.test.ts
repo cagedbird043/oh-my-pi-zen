@@ -207,7 +207,7 @@ describe("eval tool description", () => {
 		expect(tool.docTopics().fixture).toBeUndefined();
 	});
 
-	it("inlines a prelude's documentation when it asks to, without the link", () => {
+	it("inlines a prelude's documentation when it asks to and tools.xdevDocs allows it", () => {
 		const prelude: EvalPreludeDefinition = {
 			name: "fixture",
 			documentation: "Fixture summary line.\n\nINLINE PRELUDE DOCUMENTATION",
@@ -219,15 +219,23 @@ describe("eval tool description", () => {
 				return { content: [] };
 			},
 		};
-		const tool = new EvalTool(makeSession({ preludes: () => [prelude] }));
+		const tool = new EvalTool(makeSession({ preludes: () => [prelude], settings: { "tools.xdevDocs": "builtins" } }));
 		expect(tool.description).toContain("<fixture>");
 		expect(tool.description).toContain("INLINE PRELUDE DOCUMENTATION");
 		expect(tool.description).not.toContain("xd://eval/fixture");
 		expect(tool.docTopics().fixture).toContain("INLINE PRELUDE DOCUMENTATION");
-		const withoutRead = new EvalTool(makeSession({ preludes: () => [prelude], readActive: false }));
+		const withoutRead = new EvalTool(
+			makeSession({ preludes: () => [prelude], readActive: false, settings: { "tools.xdevDocs": "builtins" } }),
+		);
 		expect(withoutRead.description.split("INLINE PRELUDE DOCUMENTATION")).toHaveLength(2);
 		expect(withoutRead.description).not.toContain("<fixture>");
 		expect(withoutRead.description).not.toContain("xd://eval/fixture");
+		const catalog = new EvalTool(
+			makeSession({ preludes: () => [prelude], settings: { "tools.xdevDocs": "catalog" } }),
+		);
+		expect(catalog.description).toContain("`fixture`: Fixture summary line. → `xd://eval/fixture`");
+		expect(catalog.description).not.toContain("INLINE PRELUDE DOCUMENTATION");
+		expect(catalog.docTopics().fixture).toContain("INLINE PRELUDE DOCUMENTATION");
 	});
 });
 
