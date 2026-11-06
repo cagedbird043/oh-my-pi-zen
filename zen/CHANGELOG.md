@@ -1,5 +1,18 @@
 # Changelog
 
+## [18.17.0-zen.1] - 2026-11-07
+
+### Changed
+
+- 跟进上游 18.17.0，保留全部 zen 功能，包括流式按行定稿、`/redraw`、KDE 隔离桌面、Termux、collab 大会话优化、会话正文搜索、AnySearch、内置生图和可选 PipeWire；上游新增的后台自动更新同样从 zen npm 包安装。
+  Rebased onto upstream 18.17.0, retaining all zen features, including streamed line settlement, `/redraw`, the isolated KDE desktop, Termux, large-session collab optimizations, transcript search, AnySearch, built-in image generation, and optional PipeWire; upstream's new background auto-update also installs from the zen npm packages.
+- 上游新的内置 shell 引擎可在 Termux（android-arm64）上运行，终端设置、进程列表与信号处理按 Linux 方式工作。
+  Upstream's new built-in shell engine runs on Termux (android-arm64), with terminal settings, process listing, and signal handling following Linux behavior.
+- `tools.xdevDocs` 为 `catalog` 时，eval 工具说明只列出扩展文档链接、按需读取，不再内联约 19 KB 的 computer 文档。
+  With `tools.xdevDocs` set to `catalog`, the eval tool description links extension docs for on-demand reading instead of inlining the ~19 KB computer documentation.
+- bash 拦截器提示改用专用工具时，要求在同一轮里并行调用。
+  When the bash interceptor redirects a command to a dedicated tool, it now asks for those calls to run in parallel in one turn.
+
 ## [18.16.0-zen.2] - 2026-11-03
 
 ### Fixed
