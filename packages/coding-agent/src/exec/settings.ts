@@ -25,32 +25,38 @@ export const DEFAULT_BASH_INTERCEPTOR_RULES: BashInterceptorRule[] = [
 		pattern:
 			"^\\s*(?:(?:head|tail|less|more)\\s+|cat\\s+(?!\\s|(?:[02-9]>{1,2}\\|?\\s*[^\\s>|]\\S*\\s+)*(?:<<|1?>(?!&)|&>)))",
 		tool: "read",
-		message: "Use the `read` tool instead of cat/head/tail. It provides better context and handles binary files.",
+		message:
+			"Use the `read` tool instead of cat/head/tail. It provides better context and handles binary files. For several files or ranges, issue the `read` calls in parallel in one turn; that is faster than reading them one after another.",
 	},
 	{
 		pattern: "^\\s*(grep|rg|ripgrep|ag|ack)\\s+",
 		tool: "grep",
-		message: "Use the `grep` tool instead of grep/rg. It respects .gitignore and provides structured output.",
+		message:
+			"Use the `grep` tool instead of grep/rg. It respects .gitignore and provides structured output. For several patterns or paths, issue the `grep` calls in parallel in one turn; that is faster than running them one after another.",
 	},
 	{
 		pattern: "^\\s*(find|fd|locate)\\s+.*(-name|-iname|-type|--type|-glob)",
 		tool: "glob",
-		message: "Use the `glob` tool instead of find/fd. It respects .gitignore and is faster for glob patterns.",
+		message:
+			"Use the `glob` tool instead of find/fd. It respects .gitignore and is faster for glob patterns. For several patterns or directories, issue the `glob` calls in parallel in one turn; that is faster than running them one after another.",
 	},
 	{
 		pattern: "^\\s*sed\\s+(-i|--in-place)",
 		tool: "edit",
-		message: "Use the `edit` tool instead of sed -i. It provides diff preview and fuzzy matching.",
+		message:
+			"Use the `edit` tool instead of sed -i. It provides diff preview and fuzzy matching. For independent changes in several files, issue the `edit` calls in parallel in one turn.",
 	},
 	{
 		pattern: "^\\s*perl\\s+.*-[pn]?i",
 		tool: "edit",
-		message: "Use the `edit` tool instead of perl -i. It provides diff preview and fuzzy matching.",
+		message:
+			"Use the `edit` tool instead of perl -i. It provides diff preview and fuzzy matching. For independent changes in several files, issue the `edit` calls in parallel in one turn.",
 	},
 	{
 		pattern: "^\\s*awk\\s+.*-i\\s+inplace",
 		tool: "edit",
-		message: "Use the `edit` tool instead of awk -i inplace. It provides diff preview and fuzzy matching.",
+		message:
+			"Use the `edit` tool instead of awk -i inplace. It provides diff preview and fuzzy matching. For independent changes in several files, issue the `edit` calls in parallel in one turn.",
 	},
 	{
 		// `>` must sit outside quoted regions (so `echo "a -> b"` passes) and be
@@ -75,7 +81,7 @@ export const DEFAULT_BASH_INTERCEPTOR_RULES: BashInterceptorRule[] = [
 			"^\\s*(?:(?:echo|printf)\\s+|cat\\s*<<|cat(?=\\s+(?:\\d+|&)?>)\\s+)(?:(?:\\\\[\\s\\S]|\\$\\((?:[^()\"'`]|\"[^\"]*\"|'[^']*'|`[^`]*`|\\([^()]*\\))*\\)|\\$\\{[^{}]*\\}|`[^`]*`|\\$(?!\\((?:[^()\"'`]|\"[^\"]*\"|'[^']*'|`[^`]*`|\\([^()]*\\))*\\)|\\{[^{}]*\\})|`(?![^`]*`)|[^\"'>;&|\\n\\\\$`]|(?<=[<>])&|(?<![<>])&(?=>)|(?<=(?:^|\\s)[02-9])>{1,2}\\|?|\"[^\"]*\"|'[^']*')|(?<!\\||>|(?:^|\\s)[02-9])>{1,2}\\|?\\s*(?:\"/dev/(?:null|tty|stdout|stderr)\"|'/dev/(?:null|tty|stdout|stderr)'|/dev/(?:null|tty|stdout|stderr))(?=[\\s;&|]|$))*(?<!\\||>|(?:^|\\s)[02-9])>{1,2}\\|?\\s*(?!(?:\"/dev/(?:null|tty|stdout|stderr)\"|'/dev/(?:null|tty|stdout|stderr)'|/dev/(?:null|tty|stdout|stderr))(?:[\\s;&|]|$))[$\\w./~\"'-]",
 		tool: "write",
 		message:
-			"Use the `write` tool instead of echo/cat redirection. It handles encoding and provides confirmation. `write` replaces the whole file; to append to an existing file, use `edit` to insert after its last line.",
+			"Use the `write` tool instead of echo/cat redirection. It handles encoding and provides confirmation. `write` replaces the whole file; to append to an existing file, use `edit` to insert after its last line. For several independent files, issue the `write` calls in parallel in one turn.",
 	},
 	{
 		pattern: "^\\s*nohup\\s+|(?<!&)\\&\\s*$",
