@@ -1,5 +1,17 @@
 # Changelog
 
+## [18.18.0-zen.1] - 2026-11-07
+
+### Changed
+
+- 跟进上游 18.18.0，保留全部 zen 功能，包括流式按行定稿、`/redraw`、KDE 隔离桌面、Termux、collab 大会话优化、会话正文搜索、AnySearch、内置生图和可选 PipeWire。
+  Rebased onto upstream 18.18.0, retaining all zen features, including streamed line settlement, `/redraw`, the isolated KDE desktop, Termux, large-session collab optimizations, transcript search, AnySearch, built-in image generation, and optional PipeWire.
+
+### Fixed
+
+- Termux 上 `/debug` 的 work profile 和过长 IPC socket 的兜底目录改放 `$TMPDIR`，不再因无法写入 `/tmp` 失败。
+  On Termux, the `/debug` work profile and the fallback directory for over-long IPC sockets now live under `$TMPDIR` instead of failing on the unwritable `/tmp`.
+
 ## [18.17.0-zen.1] - 2026-11-07
 
 ### Changed
