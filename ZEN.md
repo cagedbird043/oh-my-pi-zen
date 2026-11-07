@@ -35,7 +35,7 @@
 - natives 只发四个平台：`linux-x64`（自编，cargo feature `wayland-pipewire`）、`android-arm64`（NDK r30、API 28 交叉编译，bionic；最低 Android 9）、`darwin-arm64`、`linux-arm64`
   （后两者复用官方同版本 npm 包里的 `.node`）。addon 版本在链接后写入，必须与 `X.Y.Z-zen.N` 一致；Android 不提供桌面操作与系统剪贴板。
 - Linux 的 PipeWire 运行库按需加载，缺库不得阻断普通 CLI；发布前运行 `bun scripts/zen/native-portability-smoke.ts /tmp/zen-publish`，在无 PipeWire/SPA 的隔离容器中验证实际 npm 包的加载、CLI 启动和捕获错误。
-- 安装：`bun install -g @oh-my-pi-zen/pi-coding-agent`。
+- 安装：`bun install -g @oh-my-pi-zen/pi-coding-agent`。发布后先确认四个 native leaf 的精确版本在 `https://registry.npmjs.org` 均可获取再安装：leaf 尚不可用时 bun 会把它当缺失的可选依赖跳过并记入全局 lockfile，之后 `--force`、`--no-cache` 重装都不补装；已出现时先 `bun remove -g @oh-my-pi-zen/pi-coding-agent` 再 `bun add -g @oh-my-pi-zen/pi-coding-agent@<版本>`。
 
 ### npm 发布流程
 
