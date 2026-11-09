@@ -1,5 +1,19 @@
 # Changelog
 
+## [18.18.3-zen.1] - 2026-11-09
+
+### Changed
+
+- 跟进上游 18.18.3，保留全部 zen 功能；合并缓存保持、会话切换、eval 状态恢复与内置 shell 修复。
+  Rebased onto upstream 18.18.3, retaining all zen features and incorporating fixes for prompt-cache reuse, session transitions, eval state recovery, and the built-in shell.
+- `ask` 采用上游新的 HTML 表单接口，可展示图片和 SVG；Claude、Gemini 默认不再被强推委派，eager 委派设置仅影响主代理。
+  `ask` adopts upstream's new HTML form interface with image and SVG support; Claude and Gemini are no longer pushed to delegate by default, and eager delegation settings apply only to the main agent.
+
+### Fixed
+
+- OpenAI 多参考图编辑使用数组字段，xAI 生图保留请求的横竖画幅；collab 与 HTML 导出显示新版生图提示词、数量和渲染参数。
+  OpenAI multi-reference edits use array fields, xAI image generation preserves the requested canvas ratio, and collab and HTML exports show the new image prompt, count, and rendering controls.
+
 ## [18.18.0-zen.1] - 2026-11-07
 
 ### Changed
