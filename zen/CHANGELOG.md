@@ -11,6 +11,8 @@
 
 ### Fixed
 
+- 自定义 provider 未声明图片上限时不再默认限制为 5 张，连续看图保留旧图与缓存前缀；显式图片上限、请求体大小和归档预算继续生效。
+  Custom providers without a declared image limit no longer default to five images: successive image reads preserve historical images and their cache prefix, while explicit image limits, request-body limits, and archive budgets remain enforced.
 - OpenAI 多参考图编辑使用数组字段，xAI 生图保留请求的横竖画幅；collab 与 HTML 导出显示新版生图提示词、数量和渲染参数。
   OpenAI multi-reference edits use array fields, xAI image generation preserves the requested canvas ratio, and collab and HTML exports show the new image prompt, count, and rendering controls.
 

@@ -11,6 +11,9 @@
 ### Changed
 
 - `compact()` splits its synchronous work into two `compaction.snapcompact` loop phases (building the archive source, then planning the layout) with an event-loop turn between them, shortening the longest main-thread block on long histories ([#15689](https://github.com/can1357/oh-my-pi/issues/15689), [#18867](https://github.com/can1357/oh-my-pi/pull/18867) by [@wolfiesch](https://github.com/wolfiesch))
+### Fixed
+
+- Custom deployments without a declared image limit no longer lose historical images after five inputs; generated archives remain bounded by frame and byte budgets.
 
 ## [18.17.0] - 2026-11-06
 
