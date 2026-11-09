@@ -14,7 +14,13 @@ describe("ToolView xd:// dispatches", () => {
 						xdev: {
 							tool: "generate_image",
 							mode: "execute",
-							args: { subject: "alpine lake" },
+							args: {
+								prompt: "alpine lake",
+								size: "landscape",
+								background: "transparent",
+								quality: "high",
+								count: 2,
+							},
 							inner: {
 								images: [{ data: "aW1hZ2U=", mimeType: "image/png" }],
 							},
@@ -27,6 +33,10 @@ describe("ToolView xd:// dispatches", () => {
 		expect(html).toContain("xd://generate_image");
 		expect(html).toContain("alpine lake");
 		expect(html).toContain('src="data:image/png;base64,aW1hZ2U="');
+		expect(html).toContain("landscape");
+		expect(html).toContain("transparent");
+		expect(html).toContain("high");
+		expect(html).toContain("×2");
 	});
 
 	it("renders xd://resolve apply cards from unwrapped inner details", () => {
