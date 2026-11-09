@@ -29,7 +29,13 @@ describe("ToolView bash tool commands", () => {
 								tool: "generate_image",
 								mode: "execute",
 								exitCode: 0,
-								args: { subject: "alpine lake" },
+								args: {
+									prompt: "alpine lake",
+									size: "landscape",
+									background: "transparent",
+									quality: "high",
+									count: 2,
+								},
 								inner: { images: [{ data: "aW1hZ2U=", mimeType: "image/png" }] },
 							},
 							{
@@ -53,8 +59,10 @@ describe("ToolView bash tool commands", () => {
 		expect(html).toContain('class="tv-name">bash<');
 		expect(html).toContain('class="tv-name">generate_image<');
 		expect(html).toContain('class="tv-name">resolve<');
-		// Each nested card is fed its own record: the summary reads `args`, the card model `inner`.
+		// Each collapsed nested card reads its own args, not the bash command.
 		expect(html).toContain("alpine lake");
+		expect(html).toContain("landscape");
+		expect(html).toContain("×2");
 		expect(html).toContain("tv-badge--ok");
 	});
 
@@ -128,18 +136,22 @@ describe("ToolView bash tool commands", () => {
 
 /** The card each record's inner details feeds when its nested view is expanded. */
 describe("ToolView tool command record cards", () => {
-	it("renders a generate_image record's inner images", () => {
+	it("renders the generation options and images when the record is expanded", () => {
 		const html = renderToStaticMarkup(
 			<ToolView
 				name="generate_image"
 				defaultOpen
-				args={{ subject: "alpine lake" }}
+				args={{ prompt: "alpine lake", size: "landscape", background: "transparent", quality: "high", count: 2 }}
 				result={{ content: [], details: { images: [{ data: "aW1hZ2U=", mimeType: "image/png" }] } }}
 			/>,
 		);
 
 		expect(html).toContain("alpine lake");
 		expect(html).toContain('src="data:image/png;base64,aW1hZ2U="');
+		expect(html).toContain("landscape");
+		expect(html).toContain("transparent");
+		expect(html).toContain("high");
+		expect(html).toContain("×2");
 	});
 
 	it("renders a resolve record's inner apply details", () => {
