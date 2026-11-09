@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Viewing more than five images on custom providers without a declared image limit no longer evicts earlier images and invalidates their prompt-cache prefix; explicit provider and user limits still apply.
+
 ## [18.18.3] - 2026-11-09
 
 ### Breaking Changes

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Custom deployments without a declared image limit no longer lose historical images after five inputs; generated archives remain bounded by frame and byte budgets.
+
 ## [18.17.0] - 2026-11-06
 
 ### Fixed

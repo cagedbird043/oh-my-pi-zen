@@ -568,9 +568,8 @@ export function frameDataBytes(frames: readonly Pick<Frame, "data">[]): number {
 	return frames.reduce((sum, frame) => sum + frame.data.length, 0);
 }
 
-/** Safe floor for a deployment whose catalog rules set no `image-count-budget`
- *  (strictest mainstream measured: Groq ~5). */
-export const DEFAULT_PROVIDER_IMAGE_BUDGET = 5;
+/** No count-based eviction when the deployment declares no image limit. */
+export const DEFAULT_PROVIDER_IMAGE_BUDGET = Number.POSITIVE_INFINITY;
 
 /** Most images one request to `model`'s deployment may carry, archive,
  *  system-prompt and tool-result imaging combined. */
