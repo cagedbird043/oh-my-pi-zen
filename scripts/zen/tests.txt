@@ -32,3 +32,8 @@ packages/coding-agent/test/tools/image-gen.test.ts
 packages/ai/test/openai-images.test.ts
 packages/ai/test/auth-gateway-images.test.ts
 packages/catalog/test/image-generation-policy.test.ts
+packages/coding-agent/test/session/provider-image-budget.test.ts
+packages/coding-agent/test/snapcompact-inline.test.ts
+packages/coding-agent/test/agent-session-snapcompact-budget.test.ts
+packages/snapcompact/test/snapcompact.test.ts
+packages/catalog/test/request-size.test.ts
