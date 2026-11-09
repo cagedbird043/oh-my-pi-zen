@@ -1825,19 +1825,13 @@ describe("archive helpers", () => {
 		expect((blocks[2] as { text: string }).text).toContain("tail text");
 	});
 
-	it("caps images at the deployment's budget and unknown hosts at the safe floor", () => {
+	it("bounds generated archives even when the deployment has no declared image limit", () => {
 		const ramp = buildModel({ ...toModelSpec(getBundledModel("anthropic", "claude-opus-5-5")), provider: "ramp" });
-		expect(snapcompact.providerImageBudget(ramp)).toBe(snapcompact.DEFAULT_PROVIDER_IMAGE_BUDGET);
-		expect(snapcompact.providerImageBudget(undefined)).toBe(snapcompact.DEFAULT_PROVIDER_IMAGE_BUDGET);
-		expect(snapcompact.providerFrameBudget(ramp)).toBe(snapcompact.DEFAULT_PROVIDER_IMAGE_BUDGET);
-		// The frame cap never exceeds the default frame count, even under a 600-image budget.
 		const opus = getBundledModel("anthropic", "claude-opus-5-5");
-		expect(snapcompact.providerImageBudget(opus)).toBe(600);
-		expect(snapcompact.providerFrameBudget(opus)).toBe(snapcompact.MAX_FRAMES_DEFAULT);
-		// The strictest Anthropic budget (200k-window models) still holds a full default archive.
-		expect(snapcompact.MAX_FRAMES_DEFAULT).toBeLessThanOrEqual(
-			snapcompact.providerImageBudget(getBundledModel("anthropic", "claude-haiku-4-5")),
-		);
+		for (const model of [undefined, ramp, opus]) {
+			expect(snapcompact.providerFrameBudget(model)).toBeLessThanOrEqual(snapcompact.MAX_FRAMES_DEFAULT);
+		}
+		expect(snapcompact.providerFrameBudget(buildModel({ ...toModelSpec(ramp), imageCountBudget: 2 }))).toBe(2);
 	});
 });
 

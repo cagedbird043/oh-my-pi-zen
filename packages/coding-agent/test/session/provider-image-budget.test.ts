@@ -192,6 +192,12 @@ function computerTurn(index: number, screenshot: string, shown: ImageContent[] =
 	];
 }
 
+function screenshotTurn(index: number): Message[] {
+	return computerTurn(index, `image-${index}`).map(message =>
+		message.role === "toolResult" ? { ...message, providerMetadata: undefined } : message,
+	);
+}
+
 /** A model on Factory Droid's roster, routed on its registry wire. */
 function factoryModel(id: string) {
 	const entry = factoryDroidRegistry().find(model => model.spec.id === id);
@@ -259,6 +265,42 @@ describe("provider context image budgets", () => {
 	});
 
 	it.each([
+		["custom Anthropic", { ...ANTHROPIC_SPEC, provider: "custom-anthropic" }],
+		["custom Responses", { ...toModelSpec(OPENAI_RESPONSES_MODEL), provider: "custom-responses" }],
+		["a rerouted DeepSeek deployment", toModelSpec(DEEPSEEK_PROXY_MODEL)],
+	] as const)("preserves history past five images on %s without a declared cap", (_label, spec) => {
+		const model = buildModel(spec);
+		const context: Context = { systemPrompt: [], tools: [], messages: [] };
+		let previous: Context = context;
+		for (let index = 0; index < 7; index++) {
+			context.messages.push(...screenshotTurn(index));
+			const sent = clampProviderContextImages(context, model);
+			expect(imageData(sent)).toEqual(Array.from({ length: index + 1 }, (_, i) => `image-${i}`));
+			expect(sent.messages.slice(0, previous.messages.length)).toEqual(previous.messages);
+			previous = { ...sent, messages: [...sent.messages] };
+		}
+		const capped = clampProviderContextImages(context, buildModel({ ...spec, imageCountBudget: 2 }));
+		expect(imageData(capped)).toEqual(["image-5", "image-6"]);
+	});
+
+	it("keeps earlier Anthropic wire messages unchanged when a sixth screenshot arrives", async () => {
+		const model = buildModel({ ...ANTHROPIC_SPEC, provider: "custom-anthropic" });
+		const context: Context = {
+			systemPrompt: [],
+			tools: [],
+			messages: Array.from({ length: 5 }, (_, i) => screenshotTurn(i)).flat(),
+		};
+		const before = JSON.parse(await anthropicRequestBody(model, clampProviderContextImages(context, model))) as {
+			messages: unknown[];
+		};
+		context.messages.push(...screenshotTurn(5));
+		const after = JSON.parse(await anthropicRequestBody(model, clampProviderContextImages(context, model))) as {
+			messages: unknown[];
+		};
+		expect(after.messages.slice(0, 3)).toEqual(before.messages.slice(0, 3));
+	});
+
+	it.each([
 		["the official Anthropic API", ANTHROPIC_MODEL, 600],
 		["an Anthropic proxy", ANTHROPIC_PROXY_MODEL, 90],
 		["the official Codex backend", CODEX_MODEL, 2000],
@@ -271,7 +313,7 @@ describe("provider context image budgets", () => {
 		["GPT on Cursor", CURSOR_GPT_MODEL, 60],
 		["Cursor's default route", CURSOR_DEFAULT_MODEL, 20],
 		["the official DeepSeek API", DEEPSEEK_MODEL, 600],
-		["a DeepSeek proxy", DEEPSEEK_PROXY_MODEL, 5],
+		["Groq", buildModel({ ...toModelSpec(OPENAI_RESPONSES_MODEL), provider: "groq" }), 5],
 	] as const)("keeps the newest images up to the count %s allows", (_label, model, budget) => {
 		const context: Context = {
 			systemPrompt: [],
