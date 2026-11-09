@@ -1,5 +1,5 @@
 /**
- * `generate_image` — structured image-generation prompt plus the produced
+ * `generate_image` — image-generation prompt and controls plus the produced
  * image(s). Generated images travel in `details.images` (kept out of model
  * context), so the body merges them into the result before thumbnailing.
  */
@@ -23,36 +23,30 @@ function withDetailImages(result: ToolResultLike | undefined): ToolResultLike | 
 }
 
 function Summary({ args }: ToolRenderProps): ReactNode {
-	const subject = str(args.subject);
-	const aspect = str(args.aspect_ratio);
-	const changes = Array.isArray(args.changes) ? args.changes.length : 0;
+	const prompt = str(args.prompt);
+	const size = str(args.size);
+	const count = typeof args.count === "number" ? args.count : undefined;
 	return (
 		<>
-			{subject ? (
-				<span>{truncate(normalizeWs(subject), 80)}</span>
+			{prompt ? (
+				<span>{truncate(normalizeWs(prompt), 80)}</span>
 			) : (
-				args.subject !== undefined && <InvalidArg what="subject" />
+				args.prompt !== undefined && <InvalidArg what="prompt" />
 			)}{" "}
-			{aspect && <Badge>{aspect}</Badge>}
-			{changes > 0 && <Badge tone="accent">edit ×{changes}</Badge>}
+			{size && <Badge>{size}</Badge>}
+			{count !== undefined && <Badge tone="accent">×{count}</Badge>}
 		</>
 	);
 }
 
 const PROMPT_FIELDS = [
-	["subject", "subject"],
-	["action", "action"],
-	["scene", "scene"],
-	["composition", "composition"],
-	["lighting", "lighting"],
-	["style", "style"],
-	["text", "text"],
-	["aspect_ratio", "aspect"],
-	["image_size", "size"],
+	["prompt", "prompt"],
+	["size", "size"],
+	["background", "background"],
+	["quality", "quality"],
 ] as const;
 
 function Body({ args, result }: ToolRenderProps): ReactNode {
-	const changes = Array.isArray(args.changes) ? args.changes : null;
 	const inputs = Array.isArray(args.input) ? args.input : null;
 	const details = detailsRecord(result);
 	const provider = str(details?.provider);
@@ -77,21 +71,12 @@ function Body({ args, result }: ToolRenderProps): ReactNode {
 						</Kv>
 					);
 				})}
+				<Kv k="count">{typeof args.count === "number" ? args.count : null}</Kv>
 			</KvGrid>
-			{changes && changes.length > 0 && (
-				<div className="tv-list">
-					{changes.map((change, i) => (
-						<Row key={i} k={i === 0 ? "changes" : undefined}>
-							{typeof change === "string" ? change : <InvalidArg what="change" />}
-						</Row>
-					))}
-				</div>
-			)}
 			{inputs && inputs.length > 0 && (
 				<div className="tv-list">
 					{inputs.map((input, i) => {
 						const path = isRecord(input) ? str(input.path) : null;
-						const mime = isRecord(input) ? str(input.mime_type) : null;
 						return (
 							<Row key={i} k={i === 0 ? "input" : undefined}>
 								{!isRecord(input) ? (
@@ -99,7 +84,7 @@ function Body({ args, result }: ToolRenderProps): ReactNode {
 								) : path ? (
 									<PathText path={path} />
 								) : (
-									`base64 image${mime ? ` (${mime})` : ""}`
+									<InvalidArg what="path" />
 								)}
 							</Row>
 						);
