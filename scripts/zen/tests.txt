@@ -13,7 +13,6 @@ packages/coding-agent/test/tools/agent-desktop.test.ts
 packages/coding-agent/test/zen-changelog.test.ts
 packages/natives/test/npm-packages.test.ts
 packages/natives/test/issue-823-repro.test.ts
-scripts/ci-release-publish.test.ts
 packages/coding-agent/test/export-html-template.test.ts
 packages/coding-agent/test/legacy-pi-ast-behavior.test.ts
 packages/coding-agent/test/legacy-pi-extension-cache.test.ts
@@ -37,3 +36,7 @@ packages/coding-agent/test/snapcompact-inline.test.ts
 packages/coding-agent/test/agent-session-snapcompact-budget.test.ts
 packages/snapcompact/test/snapcompact.test.ts
 packages/catalog/test/request-size.test.ts
+packages/coding-agent/test/modes/components/assistant-message-streaming-fastpath.test.ts
+packages/tui/test/markdown-incremental-lex.test.ts
+packages/tui/test/composer-inline-shrink.test.ts
+packages/tui/test/transcript-container.test.ts
