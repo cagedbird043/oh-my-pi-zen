@@ -11,6 +11,7 @@
 - 跟进前列出旧 upstream tag 到 `zen/main` 的补丁清单，逐项确认保留、上游已覆盖或需要适配；验收前保留原 `zen/main` 不动。
 - 每个补丁的冲突解决与适配归入该主题提交；用 `git range-diff <旧tag>..<旧SHA> <新tag>..<候选分支>` 对照清单核验补丁栈，并检查新 tag 之上的最终差异。完成测试、实际 smoke 和代码审查，验收通过再将 `zen/main` 指向候选结果，以记录的旧 SHA 为显式 lease 推送。
 - 变基前先串行安装新 tag 的 `rust-toolchain.toml` 所需工具链、组件与 Android target，再并行构建，避免多个 rustup 同时首次安装同一工具链。
+- 适配桌面输入与监控代码时，平台 cfg 要覆盖类型、字段、方法及调用方；Android 不提供桌面输入，必须用 NDK 交叉编译确认，不能只看 Linux 构建结果。
 - 生成文件冲突先选择一侧作为可解析输入，再从合并后的源码重建：查看器用 `bun --cwd=packages/collab-web run gen:export-viewer --write`；规则用 `bun run gen:compat`；AnySearch 所在的模型目录用 `bun packages/catalog/scripts/generate-models.ts --provider web`，不重写其他 provider 的快照。
 - upstream 的文件尽量不改；必须改的地方改动要小且集中，降低补丁适配冲突。
 - zen 专属内容放在 upstream 没有的路径（如本文件、`.omp/config.yml`、`.github/workflows/zen-*.yml`）。
