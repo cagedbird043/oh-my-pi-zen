@@ -1,5 +1,19 @@
 # Changelog
 
+## [18.18.8-zen.1] - 2026-11-11
+
+### Changed
+
+- 跟进上游 18.18.8，保留全部 zen 功能和未知 provider 图片预算修复；合并流式滚动历史、会话切换、重试路由、进程清理及表单交互修复。
+  Rebased onto upstream 18.18.8, retaining all zen features and the undeclared image-limit fix, with improvements to streamed scrollback, session switching, retry routing, process cleanup, and form interaction.
+- 流式按行定稿与上游长表格列宽锁定协同工作，保留段落、代码块和超屏表格的滚动历史。
+  Streamed line settlement now works with upstream table-width locking, preserving scrollback for paragraphs, code blocks, and tables taller than the screen.
+
+### Fixed
+
+- collab 过载恢复和欢迎超时重连继续协商尾页快照与压缩，不会退回完整、未压缩的历史下载。
+  Collab overload recovery and welcome-timeout rejoins retain tail-snapshot and compression negotiation instead of downloading full, uncompressed history.
+
 ## [18.18.3-zen.1] - 2026-11-09
 
 ### Changed
