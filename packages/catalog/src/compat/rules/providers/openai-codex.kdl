@@ -37,10 +37,22 @@ provider "openai-codex" {
 			limits
 			supports-tools #false
 		}
+		model "gpt-6-luna-decisions" name="GPT-6 Luna Decisions" api="openai-decisions" base-url="https://api.openai.com/v1" {
+			request-model-id "gpt-6-luna"
+			reasoning #false
+			input "text" "image"
+			cost input=0.1 output=0 cache-read=0 cache-write=0
+			limits context=1050000
+			supports-tools #false
+		}
 	}
 
 	models "gpt-image-2" {
 		kind "image"
+	}
+
+	models "gpt-6-luna-decisions" {
+		kind "judge"
 	}
 
 	// Replaces the Codex provider's handwritten flex/priority pricing fallback.

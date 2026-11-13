@@ -78,6 +78,9 @@
 - Fixed OpenCode Go Muse Spark tool-call turns losing encrypted reasoning between steps ([#17748](https://github.com/can1357/oh-my-pi/pull/17748) by [@nico2525nn](https://github.com/nico2525nn)).
 - Fixed Vertex AI Gemini 3 and newer models rejecting replayed or cross-model tool calls that lack a thought signature ([#17150](https://github.com/can1357/oh-my-pi/pull/17150) by [@duck1eee](https://github.com/duck1eee)).
 - Fixed Cursor model listings omitting models available to the provider, including GLM 5.3 and Grok 4.7 ([#18248](https://github.com/can1357/oh-my-pi/pull/18248) by [@joseotaviorf](https://github.com/joseotaviorf)).
+### Added
+
+- Added `openai-codex/gpt-6-luna-decisions` as a dedicated judge using Codex OAuth, while keeping GPT-6 Luna available for chat.
 
 ## [18.20.0] - 2026-11-12
 
