@@ -1,5 +1,12 @@
 # Changelog
 
+## [18.20.0-zen.4] - 2026-11-13
+
+### Fixed
+
+- OpenAI 兼容 provider 的原生网页搜索改用 Responses 流式请求，避免非流式连接重置；保留 JSON 响应兼容，并拒绝失败、未完成或截断的搜索结果。
+  Native web search for OpenAI-compatible providers now streams Responses requests to avoid non-streaming connection resets, retaining JSON response compatibility and rejecting failed, incomplete, or truncated searches.
+
 ## [18.20.0-zen.3] - 2026-11-13
 
 ### Added
