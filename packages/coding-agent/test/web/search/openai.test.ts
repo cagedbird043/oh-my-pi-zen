@@ -55,8 +55,23 @@ function makeParams(fixture: OpenAITestFixture, fetch: FetchImpl, query = "Bun l
 	};
 }
 
+function sseResponse(...events: unknown[]): Response {
+	const bytes = new TextEncoder().encode(events.map(event => `data: ${JSON.stringify(event)}\r\n\r\n`).join(""));
+	return new Response(
+		new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (let offset = 0; offset < bytes.length; offset += 17) {
+					controller.enqueue(bytes.subarray(offset, offset + 17));
+				}
+				controller.close();
+			},
+		}),
+		{ headers: { "Content-Type": "text/event-stream; charset=utf-8" } },
+	);
+}
+
 describe("OpenAI API-billed Responses web search", () => {
-	it("dispatches OpenAI grounding through the selected model and maps search sources, citations, and usage", async () => {
+	it("dispatches streamed OpenAI grounding through the selected model and maps search sources, citations, and usage", async () => {
 		const fixture = createFixture();
 		let requestUrl: string | undefined;
 		let requestHeaders: Headers | undefined;
@@ -65,43 +80,50 @@ describe("OpenAI API-billed Responses web search", () => {
 			requestUrl = String(input);
 			requestHeaders = new Headers(init?.headers);
 			requestBody = JSON.parse(String(init?.body));
-			return new Response(
-				JSON.stringify({
-					id: "resp-openai-search-1",
-					model: "gpt-5.6-luna",
-					output: [
-						{
-							type: "web_search_call",
-							status: "completed",
-							action: {
-								type: "search",
-								query: '"Responses web search" -legacy site:docs.openai.com after:2026-01-01',
-								sources: [{ type: "url", url: "https://docs.openai.com/search", title: "OpenAI Search Docs" }],
-							},
-						},
-						{
-							type: "message",
-							role: "assistant",
-							content: [
-								{
-									type: "output_text",
-									text: "Bun v1.2 launched.",
-									annotations: [
-										{
-											type: "url_citation",
-											url: "https://docs.openai.com/search",
-											title: "OpenAI Search Docs",
-											start_index: 0,
-											end_index: 18,
-										},
+			return sseResponse(
+				{ type: "response.created", response: { status: "in_progress" } },
+				{ type: "response.output_text.delta", delta: "Do not use intermediate output." },
+				{
+					type: "response.completed",
+					response: {
+						status: "completed",
+						id: "resp-openai-search-1",
+						model: "gpt-5.6-luna",
+						output: [
+							{
+								type: "web_search_call",
+								status: "completed",
+								action: {
+									type: "search",
+									query: '"Responses web search" -legacy site:docs.openai.com after:2026-01-01',
+									sources: [
+										{ type: "url", url: "https://docs.openai.com/search", title: "OpenAI Search Docs" },
 									],
 								},
-							],
-						},
-					],
-					usage: { input_tokens: 120, output_tokens: 35, total_tokens: 155 },
-				}),
-				{ status: 200, headers: { "Content-Type": "application/json" } },
+							},
+							{
+								type: "message",
+								role: "assistant",
+								content: [
+									{
+										type: "output_text",
+										text: "Bun v1.2 launched.",
+										annotations: [
+											{
+												type: "url_citation",
+												url: "https://docs.openai.com/search",
+												title: "OpenAI Search Docs",
+												start_index: 0,
+												end_index: 18,
+											},
+										],
+									},
+								],
+							},
+						],
+						usage: { input_tokens: 120, output_tokens: 35, total_tokens: 155 },
+					},
+				},
 			);
 		};
 
@@ -123,6 +145,7 @@ describe("OpenAI API-billed Responses web search", () => {
 				tool_choice: { type: "web_search" },
 				include: ["web_search_call.action.sources"],
 				store: false,
+				stream: true,
 			});
 			expect(result).toMatchObject({
 				provider: "openai",
@@ -333,6 +356,161 @@ describe("OpenAI API-billed Responses web search", () => {
 			expect(result.sources.some(source => source.url === "https://results.example.test/10")).toBe(false);
 			expect(result.citations).toHaveLength(10);
 			expect(result.citations).toContainEqual({ url: citedUrl, title: "Answer citation" });
+		} finally {
+			fixture.authStorage.close();
+		}
+	});
+
+	it.each([
+		["error", { type: "error", code: "server_error", message: `Rejected key ${API_KEY}` }],
+		[
+			"failed",
+			{ type: "response.failed", response: { status: "failed", error: { code: "server_error", message: API_KEY } } },
+		],
+		["incomplete", { type: "response.incomplete", response: { status: "incomplete" } }],
+		["unsuccessful completion", { type: "response.completed", response: { status: "incomplete" } }],
+		["missing completion payload", { type: "response.completed" }],
+		["invalid event", null],
+	])(
+		"rejects a streamed %s without accepting earlier search output or exposing error messages",
+		async (_name, terminal) => {
+			const fixture = createFixture();
+			try {
+				let error: unknown;
+				try {
+					await searchOpenAIResponses(
+						makeParams(fixture, async () =>
+							sseResponse(
+								{
+									type: "response.output_item.done",
+									item: {
+										type: "web_search_call",
+										status: "completed",
+										action: { sources: [{ url: "https://bun.sh" }] },
+									},
+								},
+								{ type: "response.output_text.delta", delta: "Partial answer" },
+								terminal,
+							),
+						),
+					);
+				} catch (caught) {
+					error = caught;
+				}
+				expect(error).toMatchObject({ provider: "openai", status: 502 });
+				expect(String(error)).not.toContain(API_KEY);
+			} finally {
+				fixture.authStorage.close();
+			}
+		},
+	);
+
+	it.each([
+		["EOF", ""],
+		["DONE without completion", "data: [DONE]\n\n"],
+		["truncated completion JSON", 'data: {"type":"response.completed","response":'],
+		["malformed event JSON", "data: not-json\n\n"],
+	])("rejects a stream ending with %s after partial search results", async (_name, tail) => {
+		const fixture = createFixture();
+		try {
+			await expect(
+				searchOpenAIResponses(
+					makeParams(
+						fixture,
+						async () =>
+							new Response(
+								'data: {"type":"response.output_item.done","item":{"type":"web_search_call","status":"completed","action":{"sources":[{"url":"https://bun.sh"}]}}}\n\n' +
+									'data: {"type":"response.output_text.delta","delta":"Partial answer"}\n\n' +
+									tail,
+								{ headers: { "Content-Type": "text/event-stream" } },
+							),
+					),
+				),
+			).rejects.toMatchObject({ provider: "openai", status: 502 });
+		} finally {
+			fixture.authStorage.close();
+		}
+	});
+
+	it.each(["failed", "incomplete", "cancelled"])(
+		"rejects a JSON %s response even when partial sources are present",
+		async status => {
+			const fixture = createFixture();
+			try {
+				await expect(
+					searchOpenAIResponses(
+						makeParams(fixture, async () =>
+							Response.json({
+								status,
+								output: [
+									{
+										type: "web_search_call",
+										status: "completed",
+										action: { sources: [{ url: "https://bun.sh" }] },
+									},
+								],
+							}),
+						),
+					),
+				).rejects.toMatchObject({ provider: "openai", status: 502 });
+			} finally {
+				fixture.authStorage.close();
+			}
+		},
+	);
+
+	it("propagates stream transport failures rather than accepting partial output", async () => {
+		const fixture = createFixture();
+		const failure = new Error("connection reset");
+		try {
+			await expect(
+				searchOpenAIResponses(
+					makeParams(
+						fixture,
+						async () =>
+							new Response(
+								new ReadableStream<Uint8Array>({
+									start(controller) {
+										controller.enqueue(
+											new TextEncoder().encode(
+												'data: {"type":"response.output_text.delta","delta":"Partial answer"}\n\n',
+											),
+										);
+									},
+									pull(controller) {
+										controller.error(failure);
+									},
+								}),
+								{ headers: { "Content-Type": "text/event-stream" } },
+							),
+					),
+				),
+			).rejects.toBe(failure);
+		} finally {
+			fixture.authStorage.close();
+		}
+	});
+
+	it("still validates that a streamed completion actually ran web search", async () => {
+		const fixture = createFixture();
+		try {
+			await expect(
+				searchOpenAIResponses(
+					makeParams(fixture, async () =>
+						sseResponse({
+							type: "response.completed",
+							response: {
+								status: "completed",
+								output: [{ type: "message", content: [{ type: "output_text", text: "Unsupported answer." }] }],
+							},
+						}),
+					),
+				),
+			).rejects.toMatchObject({
+				provider: "openai",
+				status: 502,
+				message: expect.stringContaining("no web_search_call"),
+			});
 		} finally {
 			fixture.authStorage.close();
 		}

@@ -1,6 +1,6 @@
 import { type Api, type AuthStorage, type Model, withAuth } from "@oh-my-pi/pi-ai";
 import { applySessionHeader } from "@oh-my-pi/pi-ai/providers/inference-headers";
-import { asRecord } from "@oh-my-pi/pi-utils";
+import { asRecord, readSseJson } from "@oh-my-pi/pi-utils";
 import {
 	type SearchCitation,
 	SearchProviderError,
@@ -46,6 +46,7 @@ function buildRequestBody(params: SearchParams): Record<string, unknown> {
 		tool_choice: acceptsNamedToolChoice(params.model) ? { type: "web_search" } : "required",
 		include: ["web_search_call.action.sources"],
 		store: false,
+		stream: true,
 	};
 	if (params.model.reasoningMode) body.reasoning = { mode: params.model.reasoningMode };
 	if (params.maxOutputTokens !== undefined) body.max_output_tokens = params.maxOutputTokens;
@@ -88,10 +89,63 @@ function httpError(status: number, bodyText: string): SearchProviderError {
 	return new SearchProviderError("openai", `${base}${errorDetail(bodyText)}`, status);
 }
 
+async function readPayload(response: Response, signal: AbortSignal): Promise<unknown> {
+	if (!response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")) {
+		try {
+			return await response.json();
+		} catch {
+			throw new SearchProviderError("openai", "OpenAI Responses API returned invalid JSON", 502);
+		}
+	}
+	if (!response.body) {
+		throw new SearchProviderError("openai", "OpenAI Responses API returned an empty stream", 502);
+	}
+	try {
+		for await (const payload of readSseJson<unknown>(response.body, signal)) {
+			const event = asRecord(payload);
+			if (!event) {
+				throw new SearchProviderError("openai", "OpenAI Responses API returned an invalid stream event", 502);
+			}
+			if (event.type === "error" || event.type === "response.failed" || event.type === "response.incomplete") {
+				const error = asRecord(event.response)?.error ?? event.error ?? event;
+				throw new SearchProviderError(
+					"openai",
+					`OpenAI Responses API stream failed${errorDetail(JSON.stringify({ error }))}`,
+					502,
+				);
+			}
+			if (event.type === "response.completed" || event.type === "response.done") {
+				const completed = asRecord(event.response);
+				if (!completed || (completed.status !== undefined && completed.status !== "completed")) {
+					throw new SearchProviderError(
+						"openai",
+						"OpenAI Responses API stream did not complete successfully",
+						502,
+					);
+				}
+				return completed;
+			}
+		}
+	} catch (error) {
+		if (error instanceof SyntaxError) {
+			throw new SearchProviderError("openai", "OpenAI Responses API returned invalid JSON in stream", 502);
+		}
+		throw error;
+	}
+	throw new SearchProviderError("openai", "OpenAI Responses API stream ended without a completed response", 502);
+}
+
 function readResponse(payload: unknown, modelId: string, resultLimit: number): SearchResponse {
 	const response = asRecord(payload);
 	if (!response) {
 		throw new SearchProviderError("openai", "OpenAI Responses API returned an invalid response", 502);
+	}
+	if (response.error || (response.status !== undefined && response.status !== "completed")) {
+		throw new SearchProviderError(
+			"openai",
+			`OpenAI Responses API response did not complete successfully${errorDetail(JSON.stringify(response))}`,
+			502,
+		);
 	}
 
 	const output = Array.isArray(response.output) ? response.output.map(asRecord).filter(record => record !== null) : [];
@@ -234,19 +288,15 @@ export async function searchOpenAIResponses(params: SearchParams): Promise<Searc
 			headers.set("Authorization", `Bearer ${apiKey}`);
 			headers.set("Content-Type", "application/json");
 			applySessionHeader(headers, params.model.compat, params.sessionId);
+			const signal = withHardTimeout(params.signal, params.timeoutMs);
 			const response = await (params.fetch ?? fetch)(responsesEndpoint(params.model.baseUrl), {
 				method: "POST",
 				headers,
 				body: JSON.stringify(body),
-				signal: withHardTimeout(params.signal, params.timeoutMs),
+				signal,
 			});
 			if (!response.ok) throw httpError(response.status, await response.text().catch(() => ""));
-			let payload: unknown;
-			try {
-				payload = await response.json();
-			} catch {
-				throw new SearchProviderError("openai", "OpenAI Responses API returned invalid JSON", 502);
-			}
+			const payload = await readPayload(response, signal);
 			return readResponse(payload, params.model.id, resultLimit);
 		},
 		{

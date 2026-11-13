@@ -7,6 +7,10 @@
 - Sessions remember the selected model preset on resume, retaining subsequent model and thinking overrides without changing global defaults.
 - `/modelpreset` highlights and focuses the current preset, and marks individually adjusted configurations as modified.
 
+### Fixed
+
+- OpenAI-compatible native web search now streams Responses requests to avoid non-streaming connection resets, while rejecting failed or truncated searches and retaining JSON response compatibility.
+
 ## [18.20.0] - 2026-11-12
 
 ### Breaking Changes
