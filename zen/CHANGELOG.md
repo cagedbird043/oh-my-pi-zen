@@ -1,5 +1,26 @@
 # Changelog
 
+## [18.20.0-zen.1] - 2026-11-13
+
+### Breaking Changes
+
+- 跟随上游移除 `task.file`、`taskFile` 与 todo 的 `blocked` 状态及 `block/unblock` 操作；旧阻塞任务恢复为待办。
+  Upstream removes `task.file`, `taskFile`, and todo's `blocked` state and `block/unblock` operations; saved blocked tasks resume as pending.
+- `secrets.yml` 正则改用 Rust 语法，不再支持前后查找与反向引用；旧会话中的旧式秘密占位符不再展开，使用该功能时需新开会话。
+  `secrets.yml` uses Rust regex syntax without lookarounds or backreferences; legacy secret placeholders no longer expand in old sessions, so start a new session when using this feature.
+
+### Changed
+
+- 跟进上游 18.20.0，保留全部 zen 功能、未知 provider 图片预算修复与生图功能；合并长会话、缓存、文件监听和桌面操作修复。
+  Rebased onto upstream 18.20.0, retaining all zen features, the undeclared image-limit fix, and image generation, with improvements to long sessions, caching, file watching, and desktop operations.
+- 子代理支持上游的顺序步骤，继续清理可选参数空占位；流式按行定稿保留新版表格列宽行为。
+  Subagents support upstream ordered steps while retaining optional-placeholder cleanup; streamed line settlement preserves the updated table-width behavior.
+
+### Fixed
+
+- KDE 隔离桌面保留文本输入与菜单操作，并合并上游 AX 超时、取消和安全读取修复；关闭宿主 computer 会话后可再次使用。
+  The isolated KDE desktop retains text input and menus alongside upstream AX timeout, cancellation, and safe-read fixes; host computer sessions can be used again after closing.
+
 ## [18.18.8-zen.1] - 2026-11-11
 
 ### Changed
