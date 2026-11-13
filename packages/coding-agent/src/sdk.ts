@@ -254,6 +254,7 @@ import {
 import { describeUsageFallback } from "./session/retry-fallback-reason";
 import { kUsageLimitRequestProvider } from "./session/turn-recovery";
 import { getReadableCompactionEntry, getRestorableSessionModels } from "./session/session-context";
+import { restoreSessionModelPreset } from "./config/model-presets";
 import { SessionManager } from "./session/session-manager";
 import { cfgOffline } from "./config/auxiliary-model-policy";
 import { SHAPE_RULE } from "./spotlight/shape";
@@ -2287,7 +2288,10 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 		deobfuscateSessionContext(sessionManager.buildSessionContext(), obfuscator),
 	);
 	const hasExistingSession = existingBranch.length > 0;
-	const hasThinkingEntry = existingBranch.some(entry => entry.type === "thinking_level_change");
+	const restoredPreset = restoreSessionModelPreset(settings, existingBranch);
+	const hasThinkingEntry =
+		(!restoredPreset.selection || restoredPreset.selection.thinkingOverridden) &&
+		existingBranch.some(entry => entry.type === "thinking_level_change");
 	const hasServiceTierEntry = existingBranch.some(entry => entry.type === "service_tier_change");
 
 	const deferredModelPatterns = Array.isArray(options.modelPattern)
@@ -2340,7 +2344,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 	// providers aren't visible yet, so we retry the preferred candidates once
 	// extensions register below.
 	const sessionModelStrings =
-		!hasExplicitModel && hasExistingSession
+		!hasExplicitModel && hasExistingSession && (!restoredPreset.selection || restoredPreset.selection.modelOverridden)
 			? getRestorableSessionModels(existingSession.models, sessionManager.getLastModelChangeRole())
 			: [];
 	let restoredSessionModelIndex = -1;
@@ -6399,7 +6403,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			extensionsResult,
 			setToolUIContext,
 			mcpManager: ownedMcpManager ?? (mcpManager instanceof MCPManager ? mcpManager : undefined),
-			modelFallbackMessage,
+			modelFallbackMessage: [restoredPreset.warning, modelFallbackMessage].filter(Boolean).join("\n") || undefined,
 			lspServers,
 			startBackgroundModelDiscovery: startRuntimeDiscovery,
 			eventBus,

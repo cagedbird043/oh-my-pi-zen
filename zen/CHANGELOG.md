@@ -1,5 +1,14 @@
 # Changelog
 
+## [18.20.0-zen.3] - 2026-11-13
+
+### Added
+
+- 会话记住所选模型预设，恢复时使用该预设的最新配置，保留之后单独调整的模型和思考等级；切换会话不会覆盖全局默认配置。
+  Sessions remember their selected model preset, restore its latest definition, and retain subsequent model and thinking overrides without overwriting global defaults.
+- `/modelpreset` 列表标记并定位当前预设；单独调整后的配置显示 `Current (modified)`。
+  The `/modelpreset` picker marks and focuses the current preset, showing `Current (modified)` after individual adjustments.
+
 ## [18.20.0-zen.2] - 2026-11-13
 
 ### Added
