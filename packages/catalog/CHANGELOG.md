@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added `openai-codex/gpt-6-luna-decisions` as a dedicated judge using Codex OAuth, while keeping GPT-6 Luna available for chat.
+
 ## [18.20.0] - 2026-11-12
 
 ### Added

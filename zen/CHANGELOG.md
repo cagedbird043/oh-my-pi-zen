@@ -1,5 +1,12 @@
 # Changelog
 
+## [18.20.0-zen.2] - 2026-11-13
+
+### Added
+
+- 新增 `openai-codex/gpt-6-luna-decisions` 独立 judge 条目，复用 Codex OAuth 登录调用 Decisions API；设为 judge 后可用于内置语义 `find`，保留 Luna 聊天模型。
+  Added a dedicated `openai-codex/gpt-6-luna-decisions` judge using Codex OAuth; assign it to the judge role to power semantic `find` while retaining the Luna chat model.
+
 ## [18.20.0-zen.1] - 2026-11-13
 
 ### Breaking Changes

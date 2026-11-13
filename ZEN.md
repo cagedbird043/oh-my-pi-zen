@@ -14,6 +14,7 @@
 - 适配桌面输入与监控代码时，平台 cfg 要覆盖类型、字段、方法及调用方；Android 不提供桌面输入，必须用 NDK 交叉编译确认，不能只看 Linux 构建结果。
 - 桌面冲突适配除 addon 构建外，还要运行原生 desktop 回归：测试夹具也会因窗口、能力或请求结构新增字段而失编。合并 AX 写入实现时保留 zen 的可见性/启用状态准入检查，以及上游的超时、取消和写后读回校验。
 - 生成文件冲突先选择一侧作为可解析输入，再从合并后的源码重建：查看器用 `bun --cwd=packages/collab-web run gen:export-viewer --write`；规则用 `bun run gen:compat`；AnySearch 所在的模型目录用 `bun packages/catalog/scripts/generate-models.ts --provider web`，不重写其他 provider 的快照。
+- 新增或修改 KDL 的 `seed` 模型后，除 `bun run gen:compat` 外，还要用 `bun packages/catalog/scripts/generate-models.ts --provider <provider>` 更新对应目录快照；仅编译规则不会让新增条目出现在启动时的内置目录中。
 - upstream 的文件尽量不改；必须改的地方改动要小且集中，降低补丁适配冲突。
 - zen 专属内容放在 upstream 没有的路径（如本文件、`.omp/config.yml`、`.github/workflows/zen-*.yml`）。
 - upstream 的 workflow（`ci.yml`、`bun-cache-warm.yml`、`nix.yml`）在仓库设置里停用，文件不改。
