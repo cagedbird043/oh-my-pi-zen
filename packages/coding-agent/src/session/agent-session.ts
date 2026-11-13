@@ -141,8 +141,10 @@ import {
 	disabledProviderIds,
 	formatModelStringWithRouting,
 	getModelMatchPreferences,
+	pickDefaultAvailableModel,
 	type ResolvedModelRoleValue,
 	resolveCliModel,
+	resolveModelRoleValue,
 	resolveSessionModelSelector,
 	sessionModelDiscoveryProviders,
 	withUpstreamPinOf,
@@ -491,6 +493,7 @@ import {
 } from "./session-advisors";
 import type { SessionContext, TranscriptSessionContextOptions } from "./session-context";
 import { buildSessionContext, getRestorableSessionModels, isTranscriptEntry } from "./session-context";
+import { getSessionModelPreset, restoreSessionModelPreset } from "../config/model-presets";
 import {
 	type CacheBridgeEstimate,
 	type CacheBridgeOutcome,
@@ -8536,6 +8539,46 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		return this.sessionManager.getSessionFile();
 	}
 
+	/** Preset explicitly selected on the active branch, even after individual model overrides. */
+	get modelPresetName(): string | undefined {
+		return getSessionModelPreset(this.sessionManager.getBranch())?.name;
+	}
+
+	#configuredPresetDefault(): ResolvedModelRoleValue {
+		const selector = this.settings.getModelRole("default");
+		const candidates = this.getAvailableModels();
+		const resolved = resolveModelRoleValue(selector, candidates, { settings: this.settings });
+		if (!selector) {
+			resolved.model = pickDefaultAvailableModel(candidates, provider =>
+				this.#modelRegistry.hasConcreteAuth(provider),
+			);
+		}
+		return resolved;
+	}
+
+	async #restorePresetForBranch(): Promise<void> {
+		const branch = this.sessionManager.getBranch();
+		const restored = restoreSessionModelPreset(this.settings, branch);
+		if (restored.warning) this.emitNotice("warning", restored.warning);
+		if (!restored.selection) return;
+		const context = this.sessionManager.buildSessionContext();
+		const configured = this.#configuredPresetDefault();
+		const model = restored.selection.modelOverridden
+			? await this.#resolveSessionModel(
+					getRestorableSessionModels(context.models, this.sessionManager.getLastModelChangeRole()),
+				)
+			: configured.model;
+		if (model) await this.#setModelWithProviderSessionReset(model);
+		this.#models.restoreThinkingLevel(
+			restored.selection.thinkingOverridden
+				? (parseConfiguredThinkingLevel(context.configuredThinkingLevel) ??
+						parseConfiguredThinkingLevel(context.thinkingLevel))
+				: configured.explicitThinkingLevel
+					? configured.thinkingLevel
+					: parseConfiguredThinkingLevel(cfgDefaultThinkingLevel.get(this.settings)),
+		);
+	}
+
 	/** Current session ID */
 	get sessionId(): string {
 		return this.#activeProviderSessionId();
@@ -12939,6 +12982,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		this.#assertVibeSessionTransitionAllowed("start a new session");
 		const previousSessionFile = this.sessionFile;
 
+		const previousPresetName = this.modelPresetName;
 		// Emit session_before_switch event with reason "new" (can be cancelled)
 		if (this.#extensionRunner?.hasHandlers("session_before_switch")) {
 			const result = (await this.#extensionRunner.emit({
@@ -12987,6 +13031,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				// point keeps the status line honest even if a later step below throws.
 				this.#advisors.clearCost();
 				sessionTransitioned = true;
+				this.settings.setSessionModelPreset(undefined);
 			} finally {
 				this.#bash.finishSessionTransition(bashTransition, sessionTransitioned);
 			}
@@ -12998,10 +13043,17 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#clearInheritedProviderPromptCacheKey();
 			this.#syncAgentSessionId();
 			await this.#prewalk.resetForNewSession(this.#agentKind === "main" && cfgPrewalkEnabled.get(this.settings));
-			// Re-apply the configured selector so the new session does not inherit
-			// the previous session's auto-classified effort: auto stays auto but
-			// restarts at the provisional level; a pinned level re-resolves to itself.
-			this.#models.restoreThinkingLevel(this.configuredThinkingLevel());
+			if (previousPresetName) {
+				const configured = this.#configuredPresetDefault();
+				if (configured.model) await this.#setModelWithProviderSessionReset(configured.model);
+				this.#models.restoreThinkingLevel(
+					configured.explicitThinkingLevel
+						? configured.thinkingLevel
+						: parseConfiguredThinkingLevel(cfgDefaultThinkingLevel.get(this.settings)),
+				);
+			} else {
+				this.#models.restoreThinkingLevel(this.configuredThinkingLevel());
+			}
 			// Drop the frozen system-prompt/tool snapshot and synced message bytes
 			// (mirrors freshSession()/resetSessionContext()): without this the first
 			// post-/new turns keep sending the previous session's StablePrefix, and
@@ -14753,6 +14805,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 		const previousAutoThinking = this.isAutoThinking;
 		const previousAutoResolvedLevel = this.autoResolvedThinkingLevel();
 		const previousServiceTierByFamily = this.serviceTierByFamily;
+		const previousPresetSettings = this.settings.getSessionModelPreset();
 		const previousTools = [...this.agent.state.tools];
 		const previousBaseSystemPrompt = this.#tools.baseSystemPrompt;
 		const previousSystemPromptSources = this.#tools.systemPromptSources;
@@ -14831,15 +14884,19 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#syncAgentSessionId(undefined, false);
 			this.#memory.rekeyForCurrentSessionId();
 
+			const restoredPreset = restoreSessionModelPreset(this.settings, this.sessionManager.getBranch());
+			const presetDefault = restoredPreset.selection ? this.#configuredPresetDefault() : undefined;
 			let sessionContext = this.buildDisplaySessionContext();
 			// Resolve the target's model before announcing the switch, so an
 			// unrestorable one rolls back before any hook sees the target session.
-			const targetModelStrings = getRestorableSessionModels(
-				sessionContext.models,
-				this.sessionManager.getLastModelChangeRole(),
-			);
+			const targetModelStrings =
+				restoredPreset.selection && !restoredPreset.selection.modelOverridden
+					? presetDefault?.model
+						? [`${presetDefault.model.provider}/${presetDefault.model.id}`]
+						: [this.settings.getModelRole("default")].filter((value): value is string => !!value)
+					: getRestorableSessionModels(sessionContext.models, this.sessionManager.getLastModelChangeRole());
 			let targetModel = explicitModel;
-			let modelFallbackWarning: string | undefined;
+			let modelFallbackWarning = restoredPreset.warning;
 			if (!targetModel && !options?.keepModel && targetModelStrings.length > 0) {
 				targetModel = await this.#resolveSessionModel(targetModelStrings);
 				if (!targetModel && switchingToDifferentSession) {
@@ -14932,7 +14989,9 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 				}
 			}
 
-			const hasThinkingEntry = this.sessionManager.getBranch().some(entry => entry.type === "thinking_level_change");
+			const hasThinkingEntry =
+				(!restoredPreset.selection || restoredPreset.selection.thinkingOverridden) &&
+				this.sessionManager.getBranch().some(entry => entry.type === "thinking_level_change");
 			const hasServiceTierEntry = this.sessionManager
 				.getBranch()
 				.some(entry => entry.type === "service_tier_change");
@@ -14951,11 +15010,16 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			// still classify their first turn.
 			const restoredConfigured = sessionContext.configuredThinkingLevel;
 			const restoredThinkingLevel: ConfiguredThinkingLevel | undefined =
-				hasThinkingEntry || (defaultThinkingLevel === AUTO_THINKING && sessionContext.thinkingLevel !== "off")
+				hasThinkingEntry ||
+				(!restoredPreset.selection &&
+					defaultThinkingLevel === AUTO_THINKING &&
+					sessionContext.thinkingLevel !== "off")
 					? restoredConfigured === AUTO_THINKING
 						? AUTO_THINKING
 						: (sessionContext.thinkingLevel as ThinkingLevel | undefined)
-					: defaultThinkingLevel;
+					: presetDefault?.explicitThinkingLevel
+						? presetDefault.thinkingLevel
+						: defaultThinkingLevel;
 			this.#models.restoreThinkingLevel(restoredThinkingLevel);
 			this.#models.restoreServiceTiers(
 				hasServiceTierEntry ? (sessionContext.serviceTier ?? {}) : configuredServiceTierByFamily,
@@ -15018,6 +15082,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			return true;
 		} catch (error) {
 			this.sessionManager.restoreState(previousSessionState);
+			this.settings.setSessionModelPreset(previousPresetSettings);
 			this.#freshProviderSessionId = previousFreshProviderSessionId;
 			this.#syncAgentSessionId(previousSessionState.sessionId, false);
 			this.#memory.rekeyForCurrentSessionId();
@@ -15252,6 +15317,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			await this.#memory.resetContextForNewTranscript();
 
 			// Reload messages from entries (works for both file and in-memory mode)
+			await this.#restorePresetForBranch();
 			const sessionContext = this.buildDisplaySessionContext();
 
 			// Emit session_branch event to hooks (after branch completes)
@@ -15387,6 +15453,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#memory.rekeyForCurrentSessionId();
 			await this.#memory.resetContextForNewTranscript();
 
+			await this.#restorePresetForBranch();
 			const sessionContext = this.buildDisplaySessionContext();
 
 			if (this.#extensionRunner) {
@@ -15713,6 +15780,7 @@ export class AgentSession implements SettingsScope, AgentViewSession {
 			this.#bash.finishSessionTransition(bashTransition, branchTransitioned);
 		}
 
+		await this.#restorePresetForBranch();
 		// Update agent state — build display context to populate agent messages.
 		const stateContext = this.sessionManager.buildSessionContext({
 			maxFrameDataBytes: frameDataBytesBudget(this.model),

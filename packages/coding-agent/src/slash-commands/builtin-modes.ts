@@ -7,12 +7,15 @@ import {
 	formatModelString,
 	getModelMatchPreferences,
 	resolveCliModel,
+	resolveModelRoleValue,
 	type ResolveCliModelResult,
 } from "../config/model-resolver";
 import type { Settings } from "../config/settings";
 import {
 	applyModelPreset,
 	deleteModelPreset,
+	findActiveModelPreset,
+	getModelPreset,
 	formatModelPresetSwitch,
 	getModelPresetNames,
 	isCleanModelPresetSwitch,
@@ -833,7 +836,41 @@ export const BUILTIN_MODE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 					ctx.showStatus(NO_PRESETS_MESSAGE);
 					return;
 				}
-				const picked = await ctx.showHookSelector("Switch to model preset", names);
+				const matched = findActiveModelPreset(ctx.settings);
+				const selected = ctx.session.modelPresetName;
+				const current = selected && names.includes(selected) ? selected : matched;
+				const preset = current ? getModelPreset(ctx.settings, current) : undefined;
+				const resolved =
+					preset?.kind === "found"
+						? resolveModelRoleValue(preset.preset.modelRoles.default, ctx.session.getAvailableModels(), {
+								settings: ctx.settings,
+								roleLookup: { getModelRole: role => preset.preset.modelRoles[role] },
+							})
+						: undefined;
+				const modelChanged =
+					resolved?.model !== undefined &&
+					(resolved.model.id !== ctx.session.model?.id || resolved.model.provider !== ctx.session.model?.provider);
+				const currentThinking = ctx.session.configuredThinkingLevel();
+				const presetThinking = resolved?.explicitThinkingLevel
+					? resolved.thinkingLevel
+					: preset?.kind === "found"
+						? preset.preset.defaultThinkingLevel
+						: undefined;
+				const roles = ctx.settings.getModelRoles();
+				const rolesChanged =
+					preset?.kind === "found" &&
+					(Object.keys(roles).length !== Object.keys(preset.preset.modelRoles).length ||
+						Object.entries(preset.preset.modelRoles).some(([role, value]) => roles[role] !== value));
+				const modified =
+					modelChanged || rolesChanged || (presetThinking !== undefined && presetThinking !== currentThinking);
+				const picked = await ctx.showHookSelector(
+					current ? "Switch to model preset" : "Switch to model preset (current: custom)",
+					names.map(name => ({
+						label: name,
+						description: name === current ? (modified ? "Current (modified)" : "Current") : undefined,
+					})),
+					{ initialIndex: Math.max(0, current ? names.indexOf(current) : 0) },
+				);
 				if (picked === undefined) return;
 				args = `switch ${picked}`;
 			}

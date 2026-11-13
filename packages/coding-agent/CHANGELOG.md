@@ -530,6 +530,10 @@
 - Language servers now recognize edits made shortly after a file is created, including on macOS.
 - Bash commands displayed in the Pseudo shell view now remain accurate while streaming through heredocs, substitutions, loops, continuations, arithmetic expressions, and background execution.
 - Resuming a session or reviving a subagent after a retry fallback with a thinking suffix (e.g. `:xhigh`) now restores the primary model's own thinking level instead of keeping the fallback's ([#19273](https://github.com/can1357/oh-my-pi/issues/19273)).
+### Added
+
+- Sessions remember the selected model preset on resume, retaining subsequent model and thinking overrides without changing global defaults.
+- `/modelpreset` highlights and focuses the current preset, and marks individually adjusted configurations as modified.
 
 ## [18.20.0] - 2026-11-12
 
