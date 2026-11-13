@@ -17,6 +17,7 @@ import { AUTO_THINKING, type ConfiguredThinkingLevel, parseConfiguredThinkingLev
 import { isRecord } from "@oh-my-pi/pi-utils";
 import type { AgentSession } from "../session/agent-session";
 import { cfgDefaultThinkingLevel } from "../session/settings";
+import { EPHEMERAL_MODEL_CHANGE_ROLE, type SessionEntry } from "../session/session-entries";
 import { pickDefaultAvailableModel, resolveModelRoleValue } from "./model-resolver";
 import { cfgModelPresets, cfgModelRoleStorage, type ModelPreset } from "./model-settings";
 import type { Settings, SettingProvenance } from "./settings";
@@ -92,6 +93,61 @@ export function findActiveModelPreset(settings: Settings): string | undefined {
 			presetIds.every(role => Object.hasOwn(roles, role) && roles[role] === modelRoles[role])
 		);
 	});
+}
+
+const MODEL_PRESET_ENTRY = "model-preset";
+
+export interface SessionModelPreset {
+	name: string;
+	model: string;
+	thinkingLevel?: string;
+	modelOverridden: boolean;
+	thinkingOverridden: boolean;
+}
+
+/** Read the latest selection on this branch and any subsequent model/effort changes. */
+export function getSessionModelPreset(entries: readonly SessionEntry[]): SessionModelPreset | undefined {
+	let model: string | undefined;
+	let thinking: string | null | undefined;
+	let hasThinking = false;
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry.type === "custom" && entry.customType === MODEL_PRESET_ENTRY) {
+			const data = entry.data;
+			if (!isRecord(data) || typeof data.name !== "string" || typeof data.model !== "string") continue;
+			const thinkingLevel = typeof data.thinkingLevel === "string" ? data.thinkingLevel : undefined;
+			return {
+				name: data.name,
+				model: data.model,
+				thinkingLevel,
+				modelOverridden: model !== undefined,
+				thinkingOverridden: hasThinking && (thinking ?? undefined) !== thinkingLevel,
+			};
+		}
+		if (entry.type === "model_change" && entry.role !== EPHEMERAL_MODEL_CHANGE_ROLE) model ??= entry.model;
+		if (!hasThinking && entry.type === "thinking_level_change") {
+			thinking = entry.configured ?? entry.thinkingLevel;
+			hasThinking = true;
+		}
+	}
+	return undefined;
+}
+
+/** Restore only the session's effective settings; saved defaults remain untouched. */
+export function restoreSessionModelPreset(
+	settings: Settings,
+	entries: readonly SessionEntry[],
+): { selection: SessionModelPreset | undefined; warning?: string } {
+	const selection = getSessionModelPreset(entries);
+	const lookup = selection ? getModelPreset(settings, selection.name) : undefined;
+	settings.setSessionModelPreset(lookup?.kind === "found" ? lookup.preset : undefined);
+	if (selection && lookup?.kind !== "found") {
+		return {
+			selection,
+			warning: `Model preset "${selection.name}" ${lookup?.kind === "invalid" ? `is invalid: ${lookup.reason}` : "was not found"}. Using configured defaults.`,
+		};
+	}
+	return { selection };
 }
 
 /**
@@ -207,7 +263,13 @@ export type ModelPresetSwitchResult =
 
 export type ModelPresetSession = Pick<
 	AgentSession,
-	"setModel" | "setThinkingLevel" | "getAvailableModels" | "scopedModels" | "modelRegistry"
+	| "setModel"
+	| "setThinkingLevel"
+	| "getAvailableModels"
+	| "scopedModels"
+	| "modelRegistry"
+	| "sessionManager"
+	| "configuredThinkingLevel"
 >;
 
 function presetCandidates(session: ModelPresetSession): Model[] {
@@ -364,6 +426,7 @@ async function applyModelPresetLocked(
 		return { kind: "unavailable", reason: "no model with configured credentials is available" };
 	}
 
+	settings.setSessionModelPreset(undefined);
 	writePresetRoles(settings, preset);
 	const shadowed = shadowedRoles(settings, preset);
 	const thinkingShadow = shadowedThinking(settings, preset);
@@ -380,6 +443,11 @@ async function applyModelPresetLocked(
 	if (live.thinkingLevel !== undefined && live.thinkingLevel !== ThinkingLevel.Inherit) {
 		session.setThinkingLevel(live.thinkingLevel);
 	}
+	session.sessionManager.appendCustomEntry(MODEL_PRESET_ENTRY, {
+		name,
+		model: `${live.model.provider}/${live.model.id}`,
+		thinkingLevel: session.configuredThinkingLevel(),
+	});
 	return {
 		kind: "switched",
 		model: live.model,

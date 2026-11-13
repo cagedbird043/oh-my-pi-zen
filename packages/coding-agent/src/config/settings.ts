@@ -55,7 +55,7 @@ import {
 } from "./registry";
 // Registers every setting before any instance is read (definitions live next to their domains).
 import "./all-settings";
-import { cfgDisabledProviders, cfgModelRoles, cfgModelRoleStorage } from "./model-settings";
+import { cfgDisabledProviders, cfgModelRoles, cfgModelRoleStorage, type ModelPreset } from "./model-settings";
 import { cfgShellPath } from "../exec/settings";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -318,8 +318,9 @@ interface OwnLayers {
 }
 
 /** The layers an {@link Settings.overlay} child writes locally; see {@link Settings.overlayLayers}. */
-export type OverlayLayers = Readonly<Pick<OwnLayers, "global" | "overrides"> & { derived: boolean }>;
-
+export type OverlayLayers = Readonly<
+	Pick<OwnLayers, "global" | "overrides"> & { derived: boolean; sessionModelPreset?: ModelPreset }
+>;
 /**
  * Copy of one instance's own layers and scope, from which a worker-thread {@link Settings.mirror}
  * is built and kept current ({@link Settings.mirrorState}, {@link Settings.applyMirrorState}).
@@ -334,6 +335,7 @@ export interface SettingsMirrorState {
 	readonly project: RawSettings;
 	readonly configOverlay: RawSettings;
 	readonly overrides: RawSettings;
+	readonly sessionModelPreset?: ModelPreset;
 	readonly derived: boolean;
 	readonly projectShellPathSource: string | undefined;
 	readonly overlayShellPathSource: string | undefined;
@@ -350,7 +352,8 @@ export type SettingsMirrorWrite =
 	| { readonly op: "setModelRole"; readonly role: string; readonly modelId: string | undefined }
 	| { readonly op: "setProjectModelRole"; readonly role: string; readonly modelId: string }
 	| { readonly op: "clearProjectModelRole"; readonly role: string }
-	| { readonly op: "overrideModelRoles"; readonly roles: ReadOnlyDict<string> };
+	| { readonly op: "overrideModelRoles"; readonly roles: ReadOnlyDict<string> }
+	| { readonly op: "setSessionModelPreset"; readonly preset: ModelPreset | undefined };
 
 /** A disk or scope operation a worker mirror runs on its main-thread instance. */
 export type SettingsMirrorRefresh =
@@ -665,6 +668,7 @@ export class Settings {
 	#overlayShellPathSource: string | undefined;
 	/** Runtime overrides (not persisted) */
 	#overrides: RawSettings = {};
+	#sessionModelPreset: ModelPreset | undefined;
 	/** Settings whose runtime override is a soft-pinned default ({@link pinDefaultValue}). */
 	#softPins = new Set<AnySetting>();
 	/** Merged view (global + project + overrides) */
@@ -901,7 +905,12 @@ export class Settings {
 	 * this plain data instead of the live child with its merged view, memoized values and listeners.
 	 */
 	overlayLayers(): OverlayLayers {
-		return structuredClone({ global: this.#global, overrides: this.#overrides, derived: this.#derived });
+		return structuredClone({
+			global: this.#global,
+			overrides: this.#overrides,
+			derived: this.#derived,
+			sessionModelPreset: this.#sessionModelPreset,
+		});
 	}
 
 	/** {@link overlay} of this instance whose own layers are `layers` (from {@link overlayLayers}). */
@@ -909,6 +918,7 @@ export class Settings {
 		const child = this.overlay({}, { derived: layers.derived });
 		child.#global = structuredClone(layers.global);
 		child.#overrides = structuredClone(layers.overrides);
+		child.#sessionModelPreset = structuredClone(layers.sessionModelPreset);
 		child.#rebuildMerged();
 		return child;
 	}
@@ -1005,6 +1015,7 @@ export class Settings {
 			project: structuredClone(this.#project),
 			configOverlay: structuredClone(this.#configOverlay),
 			overrides: structuredClone(this.#overrides),
+			sessionModelPreset: structuredClone(this.#sessionModelPreset),
 			derived: this.#derived,
 			projectShellPathSource: this.#projectShellPathSource,
 			overlayShellPathSource: this.#overlayShellPathSource,
@@ -1030,6 +1041,7 @@ export class Settings {
 		this.#project = structuredClone(state.project);
 		this.#configOverlay = structuredClone(state.configOverlay);
 		this.#overrides = structuredClone(state.overrides);
+		this.#sessionModelPreset = structuredClone(state.sessionModelPreset);
 		this.#derived = state.derived;
 		this.#projectShellPathSource = state.projectShellPathSource;
 		this.#overlayShellPathSource = state.overlayShellPathSource;
@@ -1095,6 +1107,13 @@ export class Settings {
 		if (!this.isConfigured(setting)) return "default";
 		const segments = setting.segments;
 		if (getByPath(this.#overrides, segments) !== undefined) return "runtime";
+		if (
+			this.#sessionModelPreset &&
+			(setting === cfgModelRoles ||
+				(setting.id === "defaultThinkingLevel" && this.#sessionModelPreset.defaultThinkingLevel !== undefined))
+		) {
+			return "runtime";
+		}
 		if (getByPath(this.#configOverlay, segments) !== undefined) return "overlay";
 		if (getByPath(projectLayerForMerge(this.#project), segments) !== undefined) return "project";
 		if (getByPath(this.#global, segments) !== undefined) return "global";
@@ -1128,6 +1147,9 @@ export class Settings {
 		}
 		if (layer === "override") this.#softPins.delete(setting);
 		const prev = setting.get(this);
+		if (this.#sessionModelPreset && setting.id === "defaultThinkingLevel") {
+			this.#sessionModelPreset.defaultThinkingLevel = value as ModelPreset["defaultThinkingLevel"];
+		}
 		// Re-setting the persisted global value is a no-op for config.yml: staging it would still
 		// queue a full re-read, rewrite, fsync, and rename of the file.
 		const persistGlobal = layer === "global" && !this.#globalWriteIsNoop(setting.segments, value);
@@ -1553,6 +1575,7 @@ export class Settings {
 		const layers = { ...cloned.#ownLayers(), overrides: this.#buildOriginalOverrides() };
 		for (const setting of cloned.#settlePins(layers)) cloned.#softPins.delete(setting);
 		cloned.#overrides = layers.overrides;
+		cloned.#sessionModelPreset = structuredClone(this.#sessionModelPreset);
 		cloned.#rebuildMerged();
 		inheritWarnings(cloned, this);
 		cloned.#validateAll();
@@ -1924,6 +1947,26 @@ export class Settings {
 		return roles;
 	}
 
+	/** Session-local preset restoration never writes the global or project config. */
+	setSessionModelPreset(preset: ModelPreset | undefined): void {
+		if (this.#mirror) return this.#forward(this.#mirror, { op: "setSessionModelPreset", preset });
+		const previous = this.#snapshot();
+		this.#sessionModelPreset = preset ? structuredClone(preset) : undefined;
+		this.#rebuildMerged();
+		this.#fireChangesSince(previous);
+	}
+
+	getSessionModelPreset(): ModelPreset | undefined {
+		return this.#sessionModelPreset ? structuredClone(this.#sessionModelPreset) : undefined;
+	}
+
+	#updateSessionModelRole(role: string, modelId: string | undefined): void {
+		if (!this.#sessionModelPreset) return;
+		if (modelId === undefined) delete this.#sessionModelPreset.modelRoles[role];
+		else this.#sessionModelPreset.modelRoles[role] = modelId;
+		this.#rebuildMerged();
+	}
+
 	#modelRoleLayerOwns(layer: RawSettings, role: ModelRole | string): boolean {
 		const value = getByPath(layer, ["modelRoles"]);
 		if (!isRecord(value)) return false;
@@ -1998,6 +2041,7 @@ export class Settings {
 
 	#setProjectModelRoleValue(role: ModelRole | string, modelId: string | null): void {
 		const prev = cfgModelRoles.get(this);
+		this.#updateSessionModelRole(role, modelId ?? this.getGlobalModelRole(role));
 		const projectRoles = getByPath(this.#project, ["modelRoles"]);
 		const current: Record<string, unknown> = isRecord(projectRoles) ? { ...projectRoles } : {};
 		current[role] = modelId;
@@ -2026,6 +2070,7 @@ export class Settings {
 	setModelRole(role: ModelRole | string, modelId: string | undefined): void {
 		if (this.#mirror) return this.#forward(this.#mirror, { op: "setModelRole", role, modelId });
 		const prev = cfgModelRoles.get(this);
+		this.#updateSessionModelRole(role, modelId);
 		// Re-setting the persisted role (or clearing an absent one) stages no config.yml rewrite;
 		// the runtime-override sync below still applies.
 		if (!this.#globalWriteIsNoop(["modelRoles", role], modelId)) {
@@ -2122,6 +2167,7 @@ export class Settings {
 	 */
 	getModelRoleProvenance(role: ModelRole | string): SettingProvenance {
 		if (this.#modelRoleLayerOwns(this.#overrides, role)) return "runtime";
+		if (this.#sessionModelPreset) return this.#sessionModelPreset.modelRoles[role] ? "runtime" : "default";
 		if (this.#modelRoleLayerOwns(this.#configOverlay, role)) return "overlay";
 		if (this.#modelRoleLayerOwns(projectLayerForMerge(this.#project), role)) return "project";
 		if (this.#modelRoleLayerOwns(this.#global, role)) return "global";
@@ -4272,6 +4318,17 @@ export class Settings {
 		this.#revision++;
 		if (this.#parent) this.#syncedParentRevision = this.#parent.revision;
 		this.#merged = this.#mergeOverParent(this.#mergeOwnLayers(this.#ownLayers()));
+		if (this.#sessionModelPreset) {
+			const runtimeRoles = getByPath(this.#overrides, ["modelRoles"]);
+			this.#merged.modelRoles = this.#deepMerge(
+				this.#sessionModelPreset.modelRoles,
+				isRecord(runtimeRoles) ? runtimeRoles : {},
+			);
+			if (this.#sessionModelPreset.defaultThinkingLevel !== undefined) {
+				this.#merged.defaultThinkingLevel =
+					this.#overrides.defaultThinkingLevel ?? this.#sessionModelPreset.defaultThinkingLevel;
+			}
+		}
 	}
 
 	#ownLayers(): OwnLayers {
