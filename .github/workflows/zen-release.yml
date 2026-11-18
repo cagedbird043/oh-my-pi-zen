@@ -52,9 +52,8 @@ jobs:
          - name: Build linux addon
            if: steps.addon.outputs.cache-hit != 'true'
            env:
-              OMP_NATIVE_FEATURES: wayland-pipewire
               OMP_NATIVE_CARGO_PROFILE: ci
-           run: bun --cwd=packages/natives run build
+           run: bun --cwd=packages/natives run build:bindings
          - uses: actions/upload-artifact@v4
            with:
               name: zen-addon-linux-x64
