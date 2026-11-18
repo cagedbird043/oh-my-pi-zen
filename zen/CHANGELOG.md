@@ -1,5 +1,19 @@
 # Changelog
 
+## [18.22.2-zen.1] - 2026-11-18
+
+### Breaking Changes
+
+- 跟随上游移除 `seance` agent 与 `/seance` 命令。
+  Upstream removes the `seance` agent and `/seance` command.
+
+### Changed
+
+- 跟进上游 18.22.2，保留 zen 的会话预设恢复、原生搜索与生图、流式按行定稿、KDE 隔离桌面及 Android 支持。
+  Rebased onto upstream 18.22.2, retaining zen session presets, native search and image generation, streamed line settlement, isolated KDE desktops, and Android support.
+- 合并上游的桌面输入、无障碍读取、终端性能和新版模型选择器改进。
+  Includes upstream desktop input, accessibility, terminal performance, and model picker improvements.
+
 ## [18.20.0-zen.4] - 2026-11-13
 
 ### Fixed
