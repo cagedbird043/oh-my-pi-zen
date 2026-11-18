@@ -52,9 +52,8 @@ jobs:
          - name: Build linux addon
            if: steps.addon.outputs.cache-hit != 'true'
            env:
-              OMP_NATIVE_FEATURES: wayland-pipewire
               OMP_NATIVE_CARGO_PROFILE: ci
-           run: bun --cwd=packages/natives run build
+           run: bun --cwd=packages/natives run build:bindings
          - uses: actions/upload-artifact@v4
            with:
               name: zen-addon-linux-x64
@@ -98,7 +97,7 @@ jobs:
               export CXX_aarch64_linux_android="$toolchain/aarch64-linux-android28-clang++"
               export AR_aarch64_linux_android="$toolchain/llvm-ar"
               export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
-              cargo build -p pi-natives --profile ci --target aarch64-linux-android
+              cargo build -p omp-natives --profile ci --target aarch64-linux-android
               cp target/aarch64-linux-android/ci/libpi_natives.so "$ANDROID_ADDON"
          - uses: actions/upload-artifact@v4
            with:
