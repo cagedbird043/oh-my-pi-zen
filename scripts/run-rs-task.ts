@@ -104,8 +104,11 @@ if (taskName !== "fmt:rs") {
 	if (!decision.run) process.exit(0);
 }
 
+// Extra test:rs arguments filter nextest only; the doctest pass still runs.
+const testArgs = taskName === "test:rs" ? process.argv.slice(3) : [];
 for (const command of TASK_COMMANDS[taskName]) {
-	const exitCode = await runCommand(command);
+	const args = command[1] === "nextest" ? [...command, ...testArgs] : command;
+	const exitCode = await runCommand(args);
 	if (exitCode !== 0) {
 		process.exit(exitCode);
 	}
