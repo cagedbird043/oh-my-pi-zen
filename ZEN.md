@@ -37,7 +37,7 @@
 - 版本号 `X.Y.Z-zen.N`：`X.Y.Z` 是所基于的 upstream tag；同一 tag 上重新发布递增 `N`，跟进新 tag 从 `zen.1` 重计。
 - 发布到 npm 的 `@oh-my-pi-zen/*`：所有 `@oh-my-pi/*` 子包改名后全量发布；zen 包之间的依赖写死精确版本，
   不用 `^`/`>=` 等范围（预发布版本不满足范围）；发布显式使用 `--tag latest`。
-- natives 只发四个平台：`linux-x64`（自编，cargo feature `wayland-pipewire`）、`android-arm64`（NDK r30、API 28 交叉编译，bionic；最低 Android 9）、`darwin-arm64`、`linux-arm64`
+- natives 只发四个平台：`linux-x64`（自编）、`android-arm64`（NDK r30、API 28 交叉编译，bionic；最低 Android 9）、`darwin-arm64`、`linux-arm64`
   （后两者复用官方同版本 npm 包里的 `.node`）。addon 版本在链接后写入，必须与 `X.Y.Z-zen.N` 一致；Android 不提供桌面操作与系统剪贴板。
 - Linux 的 PipeWire 运行库按需加载，缺库不得阻断普通 CLI；发布前运行 `bun scripts/zen/native-portability-smoke.ts /tmp/zen-publish`，在无 PipeWire/SPA 的隔离容器中验证实际 npm 包的加载、CLI 启动和捕获错误。
 - 安装：`bun install -g @oh-my-pi-zen/pi-coding-agent`。发布后先确认四个 native leaf 的精确版本在 `https://registry.npmjs.org` 均可获取再安装：leaf 尚不可用时 bun 会把它当缺失的可选依赖跳过并记入全局 lockfile，之后 `--force`、`--no-cache` 重装都不补装；已出现时先 `bun remove -g @oh-my-pi-zen/pi-coding-agent` 再 `bun add -g @oh-my-pi-zen/pi-coding-agent@<版本>`。
@@ -46,7 +46,7 @@
 
 - 触发 CI 发布前，必须先在本机完整演练 CI 的构建与暂存步骤，全部通过才能触发；CI 只用来发布，不用来发现问题：
   1. `bun check` 与 `bun scripts/zen/run-tests.ts`。
-  2. 构建与 CI 兼容的 addon：linux-x64 addon 用 `cargo-zigbuild` 把 glibc 钉在 CI 的版本（`ubuntu-24.04` 为 2.39），宿主机 glibc 更新，直接构建的 addon 过不了可移植性冒烟：`RUSTFLAGS="-C target-cpu=x86-64-v3" CARGO_TARGET_DIR=/tmp/zen-zig-target cargo zigbuild -p pi-natives --profile ci --features wayland-pipewire --target x86_64-unknown-linux-gnu.2.39`，产物 `libpi_natives.so` 即 `pi_natives.linux-x64-modern.node`；android-arm64 addon 按 `android-addon` job 用本机 NDK 交叉构建（`cargo build -p pi-natives --profile ci --target aarch64-linux-android`）。
+  2. 构建与 CI 兼容的 addon：linux-x64 addon 用 `cargo-zigbuild` 把 glibc 钉在 CI 的版本（`ubuntu-24.04` 为 2.39），宿主机 glibc 更新，直接构建的 addon 过不了可移植性冒烟：`RUSTFLAGS="-C target-cpu=x86-64-v3" CARGO_TARGET_DIR=/tmp/zen-zig-target cargo zigbuild -p omp-natives --profile ci --target x86_64-unknown-linux-gnu.2.39`，产物 `libpi_natives.so` 即 `pi_natives.linux-x64-modern.node`；android-arm64 addon 按 `android-addon` job 用本机 NDK 交叉构建（`cargo build -p omp-natives --profile ci --target aarch64-linux-android`）。
   3. 用这两个 addon 运行下面的 `prepare-publish-worktree.ts`，再对暂存树运行 `native-portability-smoke.ts`。
 - 手动运行 `.github/workflows/zen-release.yml`，或由其他 workflow 通过 `gh workflow run zen-release.yml` 触发 `workflow_dispatch`；不随 push 发布。
 - `zen_number` 指定 `N`；留空时查询 npm `latest`，同一 upstream 版本递增，否则从 `1` 开始。失败重跑时填写原 `N`，已存在的精确版本会跳过。
