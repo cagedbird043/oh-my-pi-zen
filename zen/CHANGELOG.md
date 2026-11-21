@@ -1,5 +1,25 @@
 # Changelog
 
+## [19.1.0-zen.1] - 2026-11-22
+
+### Breaking Changes
+
+- 上游把 `xd://` 工具迁到 Bash 命令，文档主题迁到 `help://`；`tools.xdev*` 配置改为 `tools.commands`、`tools.commandDocs`、`tools.commandInline`、`tools.commandNotices`。
+  Upstream replaces `xd://` tools with Bash commands, moves doc topics to `help://`, and renames the corresponding settings.
+- Chrome 扩展改用原生消息主机，沿用按加载目录计算的扩展 ID。升级后可运行 `omp browser-relay install --no-chrome` 注册消息主机；旧 relay 端口和令牌选项已移除。
+  The Chrome extension now uses native messaging and keeps its directory-based ID. Run `omp browser-relay install --no-chrome` to register the host without launching Chrome; the old relay port and token options are gone.
+- 上游移除 Gemini CLI OAuth 和 `tui.completeScrollback`，保留 Antigravity；终端滚动历史由 TUI 自动管理。
+  Upstream removes Gemini CLI OAuth and `tui.completeScrollback`. Antigravity remains available; the TUI manages scrollback automatically.
+
+### Changed
+
+- 跟进上游 19.1.0，保留模型预设恢复、Codex Decisions、原生搜索与生图、流式按行定稿、KDE 隔离桌面和 Termux 支持。
+  Rebased onto upstream 19.1.0, retaining model preset restoration, Codex Decisions, native search and image generation, streamed line settlement, isolated KDE desktops, and Termux support.
+- `archive.search` 支持上游的索引检索；`archive.grep` 仍可按字面量或正则搜索逐条消息和工具结果。
+  `archive.search` uses upstream indexed search; `archive.grep` still scans individual messages and tool results with literal or regex queries.
+- 生图用量计入会话统计，仍保留供应商返回的实际尺寸，不把生成图回填模型上下文。
+  Image usage now counts toward session totals, while preserving the provider's returned dimensions and keeping generated images out of model context.
+
 ## [18.22.2-zen.1] - 2026-11-18
 
 ### Breaking Changes
