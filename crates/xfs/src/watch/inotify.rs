@@ -13,7 +13,7 @@ use std::{
 	ffi::{CString, OsString},
 	fs, io, mem,
 	os::{
-		fd::{AsRawFd, FromRawFd, OwnedFd},
+		fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
 		unix::ffi::{OsStrExt, OsStringExt},
 	},
 	path::{Path, PathBuf},
@@ -75,6 +75,14 @@ fn limit_reached() -> io::Error {
 
 fn is_limit(error: &io::Error) -> bool {
 	error.kind() == io::ErrorKind::StorageFull
+}
+
+fn remove_watch(fd: RawFd, wd: i32) {
+	// Bionic declares the kernel's watch ID unsigned; glibc uses int.
+	#[cfg(target_os = "android")]
+	let wd = wd.cast_unsigned();
+	// SAFETY: the caller supplies a live inotify descriptor.
+	unsafe { libc::inotify_rm_watch(fd, wd) };
 }
 
 /// One inotify watch: a directory.
@@ -258,8 +266,7 @@ impl State {
 					Some(&next) => next == b'/',
 				});
 			if gone {
-				// SAFETY: plain syscall on a live descriptor.
-				unsafe { libc::inotify_rm_watch(inotify, wd) };
+				remove_watch(inotify, wd);
 			}
 			!gone
 		});
@@ -368,8 +375,7 @@ impl State {
 			// kernel confirms.
 			let path = watch.path.clone();
 			self.forget_below(&path, false);
-			// SAFETY: plain syscall on a live descriptor.
-			unsafe { libc::inotify_rm_watch(self.inotify.as_raw_fd(), wd) };
+			remove_watch(self.inotify.as_raw_fd(), wd);
 		}
 		Ok(())
 	}
