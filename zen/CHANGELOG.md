@@ -1,5 +1,12 @@
 # Changelog
 
+## [19.1.0-zen.2] - 2026-11-22
+
+### Fixed
+
+- 修复用 `app: "relay"` 接管 Chrome 已打开标签页时一直卡到超时：npm 版 CLI 现在内置打过补丁的 Puppeteer，不再加载 npm 上未打补丁的版本。
+  Fixed borrowing an open Chrome tab with `app: "relay"` hanging until timeout: the npm CLI now bundles the patched Puppeteer instead of loading the unpatched npm copy.
+
 ## [19.1.0-zen.1] - 2026-11-22
 
 ### Breaking Changes
