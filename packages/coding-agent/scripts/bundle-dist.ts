@@ -34,12 +34,9 @@ const inlineNativeNoticesPlugin: Bun.BunPlugin = {
 
 // Heavy, lazily-used third-party leaf deps. Each is a declared `dependency`, so the
 // published package resolves it from node_modules at runtime; bundling only embeds a
-// redundant copy that bloats dist/cli.js. NEVER add a patched dependency here — the
-// bundle is where a root `patchedDependencies` patch is baked in, so an externalized
-// import would load the unpatched npm package in users' installs (currently
-// @ark/schema is patched, so it — and arktype, which pulls @ark/schema — stay
-// bundled).
-const RUNTIME_EXTERNAL = ["puppeteer-core", "@babel/parser"];
+// redundant copy that bloats dist/cli.js. Keep the workspace's patched dependencies
+// and anything that would load them outside the bundle (e.g. arktype) bundled.
+const RUNTIME_EXTERNAL = ["@babel/parser"];
 
 async function runCommand(command: string[]): Promise<void> {
 	const proc = Bun.spawn(command, {
@@ -93,6 +90,12 @@ async function cleanBundleOutputs(outDir: string): Promise<void> {
 export async function bundleDist(outDir: string = defaultOutDir): Promise<void> {
 	const cliPath = path.join(outDir, "cli.js");
 	const start = Bun.nanoseconds();
+	const external = [...ALWAYS_EXTERNAL, ...RUNTIME_EXTERNAL];
+	const { patchedDependencies } = await Bun.file(path.resolve(packageDir, "../../package.json")).json();
+	for (const spec of Object.keys(patchedDependencies)) {
+		const name = spec.slice(0, spec.lastIndexOf("@"));
+		if (external.includes(name)) throw new Error(`Cannot externalize patched dependency ${name} in the npm CLI`);
+	}
 	await cleanBundleOutputs(outDir);
 	// The npm bundle ships no stats dashboard sources, so embed the dashboard
 	// archive the same way compiled binaries do (scripts/build-binary.ts). Reset
@@ -114,7 +117,7 @@ export async function bundleDist(outDir: string = defaultOutDir): Promise<void> 
 			// Also refreshes `src/.../extension.generated.json`, which SDK consumers of `src` read.
 			files: await embeddedRelayExtensionFiles(),
 			plugins: [createJsonParsePlugin(), await createLegacyPiVirtualModulePlugin(), inlineNativeNoticesPlugin],
-			external: [...ALWAYS_EXTERNAL, ...RUNTIME_EXTERNAL],
+			external,
 			define: {
 				"process.env.PI_BUNDLED": JSON.stringify("true"),
 				"process.env.PI_DOCS_EMBED": JSON.stringify(docsPayload.payload),
