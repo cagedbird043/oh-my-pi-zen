@@ -189,6 +189,7 @@ describe("SessionSelectorComponent current session marker", () => {
 			},
 		);
 		selector.handleInput("\x1b[3~");
+		selector.handleInput("\x1b[A");
 		selector.handleInput("\n");
 		await Promise.resolve();
 		selector.handleInput("\t");

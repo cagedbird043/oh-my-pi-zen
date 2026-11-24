@@ -4835,8 +4835,8 @@ export class SessionManager {
 	/**
 	 * Picker-facing project listing in recency order (the picker floats pins),
 	 * untitled empties dropped. Titled empties stay — a title is user intent worth resuming.
-	 * Arrives in two passes: rows for history.db-indexed titles first, the full
-	 * scan in `complete` (see {@link listSessionsForPicker}).
+	 * Arrives in two passes: indexed titles and the active session first, then
+	 * the full scan in `complete` (see {@link listSessionsForPicker}).
 	 * By default includes the same folder in the repository's Git and ovnfs worktrees,
 	 * so a session `/wt` moved stays reachable from the checkout it left.
 	 * The directory scope limits the picker to its own session bucket.
@@ -4847,13 +4847,14 @@ export class SessionManager {
 		storage: SessionStorage = new FileSessionStorage(),
 		worktreeScope: "directory" | "repo" = "repo",
 		settings?: Settings,
+		currentSessionPath?: string,
 	): Promise<PickerListing> {
 		const dir = sessionDir ?? SessionManager.getDefaultSessionDir(cwd, undefined, storage);
 		const [pinned, siblingDirs] = await Promise.all([
 			loadPinnedSessionIds(),
 			worktreeScope === "repo" ? worktreeSessionDirs(cwd, dir, { settings }) : [],
 		]);
-		return listSessionsForPicker(dir, storage, pinned, siblingDirs);
+		return listSessionsForPicker(dir, storage, pinned, siblingDirs, currentSessionPath);
 	}
 
 	/** Picker-facing cross-project listing, same rules and passes as {@link listForPicker}. */

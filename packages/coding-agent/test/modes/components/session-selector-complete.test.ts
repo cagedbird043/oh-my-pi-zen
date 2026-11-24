@@ -80,6 +80,7 @@ describe("SessionSelectorComponent complete listing", () => {
 			{ completeSessions: complete.promise, onDelete: async () => true },
 		);
 		selector.handleInput(DELETE);
+		selector.handleInput("\x1b[A");
 		selector.handleInput("\n");
 		// Flush the confirmed delete's async chain, as the delete tests do.
 		await Bun.sleep(0);

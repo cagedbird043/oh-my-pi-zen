@@ -51,11 +51,11 @@ describe("issue #3283: /resume picker scrolls down after deleting a session", ()
 			const headerRowBefore = term.getViewport().findIndex(row => Bun.stripANSI(row).includes("Resume Session"));
 			expect(headerRowBefore).toBeGreaterThanOrEqual(0);
 
-			// Press Delete (CSI 3 ~) to open the confirmation dialog, then
-			// Enter to accept "Yes".
+			// Open confirmation with Delete, then explicitly select Yes.
 			selector.handleInput("\x1b[3~");
 			tui.requestRender();
 			await scheduler.drain(term);
+			selector.handleInput("\x1b[A");
 			selector.handleInput("\n");
 			// onDelete is async; let its microtasks flush before draining renders.
 			for (let i = 0; i < 8; i++) await Promise.resolve();

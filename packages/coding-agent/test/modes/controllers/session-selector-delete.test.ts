@@ -62,6 +62,7 @@ describe("SessionSelectorComponent delete confirmation", () => {
 		expect(renderText(selector)).toContain("Delete session?");
 		expect(renderText(selector)).toContain("Alpha");
 
+		selector.handleInput("\x1b[A");
 		selector.handleInput("\n");
 		await Bun.sleep(0);
 
@@ -78,6 +79,7 @@ describe("SessionSelectorComponent delete confirmation", () => {
 		const selector = createSelector(onDelete);
 
 		selector.handleInput("\x1b[3~");
+		selector.handleInput("\x1b[A");
 		selector.handleInput("\n");
 		await Bun.sleep(0);
 
@@ -93,6 +95,7 @@ describe("SessionSelectorComponent delete confirmation", () => {
 		const selector = createSelector(onDelete);
 
 		selector.handleInput("\x1b[3~");
+		selector.handleInput("\x1b[A");
 		selector.handleInput("\n");
 		await Bun.sleep(0);
 
@@ -102,7 +105,7 @@ describe("SessionSelectorComponent delete confirmation", () => {
 		expect(rendered).toContain("Beta");
 	});
 
-	it("Backspace on an empty search query triggers delete confirmation (macOS Fn+Backspace sends \\x7f)", async () => {
+	it("Backspace opens delete confirmation, but Enter without choosing Yes leaves the session intact", async () => {
 		const onDelete = vi.fn(async () => true);
 		const selector = createSelector(onDelete);
 
@@ -112,13 +115,14 @@ describe("SessionSelectorComponent delete confirmation", () => {
 		expect(renderText(selector)).toContain("Delete session?");
 		expect(renderText(selector)).toContain("Alpha");
 
-		// Confirm.
+		// Enter on the default choice must not delete anything.
 		selector.handleInput("\n");
 		await Bun.sleep(0);
 
-		expect(onDelete).toHaveBeenCalledTimes(1);
-		expect(renderText(selector)).not.toContain("Alpha");
+		expect(onDelete).not.toHaveBeenCalled();
+		expect(renderText(selector)).toContain("Alpha");
 		expect(renderText(selector)).toContain("Beta");
+		expect(renderText(selector)).not.toContain("Delete session?");
 	});
 
 	it("Backspace with a non-empty search query edits the query, not the session", async () => {

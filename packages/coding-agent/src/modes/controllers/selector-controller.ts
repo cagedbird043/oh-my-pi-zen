@@ -1957,6 +1957,7 @@ export class SelectorController {
 					undefined,
 					cfgSessionWorktreeScope.get(this.ctx.settings),
 					this.ctx.settings,
+					this.ctx.sessionManager.getSessionFile?.(),
 				),
 				loadPinnedSessionIds(),
 			]);

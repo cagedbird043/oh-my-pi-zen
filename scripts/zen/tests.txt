@@ -44,3 +44,5 @@ packages/coding-agent/test/modes/components/assistant-message-streaming-fastpath
 packages/tui/test/markdown-incremental-lex.test.ts
 packages/tui/test/composer-inline-shrink.test.ts
 packages/tui/test/transcript-container.test.ts
+packages/coding-agent/test/session/picker-title-index.test.ts
+packages/coding-agent/test/modes/controllers/session-selector-delete.test.ts

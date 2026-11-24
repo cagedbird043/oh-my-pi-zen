@@ -1884,6 +1884,7 @@ export class SessionSelectorComponent<T extends SessionSelectorEntry = SessionSe
 			["Yes", "No"],
 			answer,
 			closeDialog,
+			{ initialIndex: 1 },
 		);
 		this.#deleteChoice = {
 			session,
