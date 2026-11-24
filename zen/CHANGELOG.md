@@ -1,5 +1,17 @@
 # Changelog
 
+## [19.1.1-zen.1] - 2026-11-24
+
+### Changed
+
+- 跟进上游 19.1.1，保留 Zen 的 KDE 隔离桌面、会话模型预设、Termux 支持和浏览器中继接管修复。
+  Rebased onto upstream 19.1.1, retaining Zen's isolated KDE desktop, session model presets, Termux support, and browser relay tab borrowing fix.
+
+### Fixed
+
+- 合入上游的原生搜索卡死、GPT-6.2 会话压缩后丢失推理上下文，以及 Codex WebSocket 续接丢失路由信息修复。
+  Includes upstream fixes for native search hangs, lost GPT-6.2 reasoning context after compaction, and lost Codex WebSocket continuation routing.
+
 ## [19.1.0-zen.2] - 2026-11-22
 
 ### Fixed
