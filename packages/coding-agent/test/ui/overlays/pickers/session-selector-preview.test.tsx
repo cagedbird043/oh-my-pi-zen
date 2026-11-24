@@ -137,7 +137,7 @@ describe("session picker in the terminal", () => {
 		return { term, screen };
 	}
 
-	test("the delete question takes Yes or No: No keeps the session, Yes deletes it", async () => {
+	test("the delete question resets to No and requires explicitly choosing Yes", async () => {
 		const deleted: string[] = [];
 		const { term, screen } = open(async session => {
 			deleted.push(session.path);
@@ -146,14 +146,21 @@ describe("session picker in the terminal", () => {
 		try {
 			term.press("backspace");
 			expect(screen().some(row => row.includes("Delete session?"))).toBe(true);
-			expect(screen().some(row => row.includes("❯ Yes"))).toBe(true);
-			term.press("down");
 			expect(screen().some(row => row.includes("❯ No"))).toBe(true);
 			term.press("enter");
 			expect(deleted).toEqual([]);
+			expect(screen().some(row => row.includes("Delete session?"))).toBe(false);
 			expect(screen().some(row => row.includes("❯ Parity session"))).toBe(true);
 
 			term.press("backspace");
+			term.press("up");
+			term.press("escape");
+			expect(deleted).toEqual([]);
+
+			term.press("backspace");
+			expect(screen().some(row => row.includes("❯ No"))).toBe(true);
+			term.press("up");
+			expect(screen().some(row => row.includes("❯ Yes"))).toBe(true);
 			term.press("enter");
 			await Promise.resolve();
 			expect(deleted).toEqual([complete.path]);

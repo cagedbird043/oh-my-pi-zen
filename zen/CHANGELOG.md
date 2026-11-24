@@ -11,6 +11,8 @@
 
 - 合入上游的原生搜索卡死、GPT-6.2 会话压缩后丢失推理上下文，以及 Codex WebSocket 续接丢失路由信息修复。
   Includes upstream fixes for native search hangs, lost GPT-6.2 reasoning context after compaction, and lost Codex WebSocket continuation routing.
+- `/resume` 打开即选中当前会话，即使它还没有标题；删除确认默认选「否」，避免退格后顺手回车误删会话。
+  `/resume` focuses the current session even before it has a title; deletion defaults to No to prevent accidental removal.
 
 ## [19.1.0-zen.2] - 2026-11-22
 

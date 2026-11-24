@@ -60,6 +60,17 @@ describe("resume picker title index", () => {
 		expect((await listing.complete).map(session => session.path)).toEqual([untitled]);
 	});
 
+	it("includes the active untitled session alongside indexed titles before the full scan", async () => {
+		const current = await createSession();
+		const indexed = await createSession("Indexed title");
+		const other = await createSession();
+
+		const listing = await SessionManager.listForPicker(cwd, undefined, undefined, "directory", undefined, current);
+
+		expect(listing.sessions.map(session => session.path).sort()).toEqual([current, indexed].sort());
+		expect((await listing.complete).map(session => session.path).sort()).toEqual([current, indexed, other].sort());
+	});
+
 	it("backfills header titles the index lacks, so the next listing starts with them", async () => {
 		const sessionDir = SessionManager.getDefaultSessionDir(cwd);
 		fs.mkdirSync(sessionDir, { recursive: true });

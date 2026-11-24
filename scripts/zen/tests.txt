@@ -29,8 +29,7 @@ packages/coding-agent/test/archive-grep.test.ts
 packages/coding-agent/test/tools/web-search-anysearch.test.ts
 packages/coding-agent/test/web/search/openai.test.ts
 packages/ai/test/anysearch-login.test.ts
-packages/tui/test/web-search-render.test.ts
-packages/tui/test/tools-native-web.test.ts
+packages/coding-agent/test/ui/tools/web-search.test.ts
 packages/coding-agent/test/tools/image-gen.test.ts
 packages/ai/test/openai-images.test.ts
 packages/ai/test/auth-gateway-images.test.ts
@@ -41,6 +40,9 @@ packages/coding-agent/test/agent-session-snapcompact-budget.test.ts
 packages/snapcompact/test/snapcompact.test.ts
 packages/catalog/test/request-size.test.ts
 packages/coding-agent/test/modes/components/assistant-message-streaming-fastpath.test.ts
-packages/tui/test/markdown-incremental-lex.test.ts
-packages/tui/test/composer-inline-shrink.test.ts
-packages/tui/test/transcript-container.test.ts
+packages/tui/test/term/elastic-slots.test.tsx
+packages/coding-agent/test/session/picker-title-index.test.ts
+packages/coding-agent/test/modes/controllers/session-selector-delete.test.ts
+packages/coding-agent/test/modes/components/session-selector-current.test.ts
+packages/coding-agent/test/modes/components/session-selector-complete.test.ts
+packages/coding-agent/test/ui/overlays/pickers/session-selector-preview.test.tsx

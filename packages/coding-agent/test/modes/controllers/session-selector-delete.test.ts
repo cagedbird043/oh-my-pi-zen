@@ -44,7 +44,7 @@ describe("session picker delete confirmation", () => {
 		picker.press("delete");
 		expectAlphaDeleteQuestion(picker);
 
-		picker.press("enter");
+		picker.press("up", "enter");
 		await deletes(onDelete);
 
 		const screen = picker.screen();
@@ -59,7 +59,7 @@ describe("session picker delete confirmation", () => {
 		const onDelete = vi.fn(async () => false);
 		const picker = mount(onDelete);
 
-		picker.press("delete", "enter");
+		picker.press("delete", "up", "enter");
 		await deletes(onDelete);
 
 		const screen = picker.screen();
@@ -73,7 +73,7 @@ describe("session picker delete confirmation", () => {
 		const onDelete = vi.fn(async () => true);
 		const picker = mount(onDelete);
 
-		picker.press("delete", "enter");
+		picker.press("delete", "up", "enter");
 		await deletes(onDelete);
 
 		const screen = picker.screen();
@@ -82,7 +82,7 @@ describe("session picker delete confirmation", () => {
 		expect(screen).toContain("Beta");
 	});
 
-	it("Backspace on an empty search query asks to delete the session (macOS Fn+Backspace)", async () => {
+	it("Backspace opens delete confirmation, but Enter without choosing Yes leaves the session intact", () => {
 		const onDelete = vi.fn(async () => true);
 		const picker = mount(onDelete);
 
@@ -90,11 +90,11 @@ describe("session picker delete confirmation", () => {
 		expectAlphaDeleteQuestion(picker);
 
 		picker.press("enter");
-		await deletes(onDelete);
-
-		expect(onDelete).toHaveBeenCalledTimes(1);
-		expect(picker.screen()).not.toContain("Alpha");
-		expect(picker.screen()).toContain("Beta");
+		expect(onDelete).not.toHaveBeenCalled();
+		const screen = picker.screen();
+		expect(screen).toContain("Alpha");
+		expect(screen).toContain("Beta");
+		expect(screen).not.toContain("Delete session?");
 	});
 
 	it("Backspace with a non-empty search query edits the query, not the session", async () => {

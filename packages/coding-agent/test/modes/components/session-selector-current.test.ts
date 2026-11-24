@@ -62,7 +62,7 @@ describe("session selector current session", () => {
 				return true;
 			},
 		});
-		picker.press("up", "up", "delete", "enter");
+		picker.press("up", "up", "delete", "up", "enter");
 		await deleted.promise;
 		await Promise.resolve();
 		expect(picker.screen()).not.toContain("Alpha");
@@ -85,7 +85,7 @@ describe("session selector current session", () => {
 			},
 		});
 		picker.term.type("alpha");
-		picker.press("down", "delete", "enter");
+		picker.press("down", "delete", "up", "enter");
 		await deleted.promise;
 		await Promise.resolve();
 		expect(picker.screen()).not.toContain("Alpha bravo");
@@ -120,7 +120,7 @@ describe("session selector current session", () => {
 			},
 		});
 		try {
-			picker.press("delete", "enter");
+			picker.press("delete", "up", "enter");
 			await deleted.promise;
 			await Promise.resolve();
 			picker.press("tab");

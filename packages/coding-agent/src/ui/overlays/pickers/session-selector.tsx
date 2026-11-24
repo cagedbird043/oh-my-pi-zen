@@ -184,8 +184,7 @@ export function SessionSelector(props: SessionSelectorProps): JSXNode {
 	const message = signal<{ kind: "loading" | "error"; text: string } | undefined>(undefined);
 	const errorOpen = signal(false);
 	const confirmDelete = signal<SessionSelectorEntry | undefined>(undefined);
-	/** The delete question's highlighted answer in the terminal (`Yes` first). */
-	const deleteAnswer = signal<"yes" | "no">("yes");
+	const deleteAnswer = signal<"yes" | "no">("no");
 	const rename = signal<{ session: SessionSelectorEntry; line: LineState } | undefined>(undefined);
 	const search = signal<LineState>({ text: "", cursor: 0 });
 	const folderSessions = signal<readonly SessionSelectorEntry[]>(props.sessions);
@@ -300,7 +299,7 @@ export function SessionSelector(props: SessionSelectorProps): JSXNode {
 		const session = selected();
 		if (!session || !props.onDelete) return;
 		batch(() => {
-			deleteAnswer.set("yes");
+			deleteAnswer.set("no");
 			confirmDelete.set(session);
 		});
 	};

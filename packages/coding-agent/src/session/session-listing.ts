@@ -749,10 +749,16 @@ export function isEmptySession(session: SessionInfo): boolean {
 	return true;
 }
 
-/** Picker-facing view of a session list: foreign sessions and unpinned empties dropped. */
-function filterSessionsForPicker(sessions: SessionInfo[], pinnedIds: ReadonlySet<string>): SessionInfo[] {
+/** Picker-facing view: hide foreign sessions and unpinned empties except the active session. */
+function filterSessionsForPicker(
+	sessions: SessionInfo[],
+	pinnedIds: ReadonlySet<string>,
+	currentSessionPath?: string,
+): SessionInfo[] {
 	return sessions.filter(
-		session => !isForeignSession(session) && (pinnedIds.has(session.id) || !isEmptySession(session)),
+		session =>
+			!isForeignSession(session) &&
+			(session.path === currentSessionPath || pinnedIds.has(session.id) || !isEmptySession(session)),
 	);
 }
 
@@ -767,17 +773,17 @@ export interface PickerListing extends SessionListing<SessionInfo> {
 
 /**
  * Resume-picker listing of `sessionDir` plus `siblingDirs` (the folder's
- * session directories in other worktrees). `sessions` holds the rows whose
- * title history.db indexes, built without reading a session file, so the
- * picker opens at once over thousands of sessions; `complete` settles with
- * the full scan, newest first, untitled empties dropped unless pinned. With
- * nothing indexed, `sessions` waits for the full scan.
+ * session directories in other worktrees). `sessions` holds the indexed-title
+ * rows and the active session, if present, so the picker can focus it before
+ * `complete` settles with the full scan. With no preliminary rows, `sessions`
+ * waits for the full scan.
  */
 export async function listSessionsForPicker(
 	sessionDir: string,
 	storage: SessionStorage,
 	pinnedIds: ReadonlySet<string>,
 	siblingDirs: readonly string[] = [],
+	currentSessionPath?: string,
 ): Promise<PickerListing> {
 	let files: string[];
 	try {
@@ -785,7 +791,13 @@ export async function listSessionsForPicker(
 	} catch {
 		return settledListing([]);
 	}
-	return pickerListing(files, storage, pinnedIds, () => collectSessionsFromFiles(files, storage, true));
+	return pickerListing(
+		files,
+		storage,
+		pinnedIds,
+		() => collectSessionsFromFiles(files, storage, true),
+		currentSessionPath,
+	);
 }
 
 /** {@link listSessionsForPicker} across every project directory under `sessionsRoot`. */
@@ -821,16 +833,28 @@ async function pickerListing(
 	storage: SessionStorage,
 	pinnedIds: ReadonlySet<string>,
 	scan: () => Promise<SessionInfo[]>,
+	currentSessionPath?: string,
 ): Promise<PickerListing> {
 	// The index is keyed by real session ids; in-memory test storages must not
 	// touch the process-wide history.db.
 	const useIndex = storage instanceof FileSessionStorage;
 	const titles = useIndex ? listSessionTitles() : new Map<string, string>();
 	const sessions = await indexedSessions(files, titles);
+	if (
+		currentSessionPath &&
+		files.includes(currentSessionPath) &&
+		!sessions.some(session => session.path === currentSessionPath)
+	) {
+		const current = await scanSessionFile(currentSessionPath, storage, true);
+		if (current && !isForeignSession(current)) {
+			sessions.push(current);
+			sessions.sort(compareNewestFirst);
+		}
+	}
 	// Start the scan only now: its reads would otherwise queue ahead of the stats above.
 	const complete = scan().then(scanned => {
 		if (useIndex) indexScannedTitles(scanned, titles);
-		return filterSessionsForPicker(scanned, pinnedIds);
+		return filterSessionsForPicker(scanned, pinnedIds, currentSessionPath);
 	});
 	return sessions.length > 0 ? { sessions, complete } : settledListing(await complete);
 }

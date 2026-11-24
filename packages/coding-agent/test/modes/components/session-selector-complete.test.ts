@@ -54,7 +54,7 @@ describe("session selector complete listing", () => {
 			},
 		});
 		try {
-			picker.press("delete", "enter");
+			picker.press("delete", "up", "enter");
 			await deleted.promise;
 			await Promise.resolve();
 
