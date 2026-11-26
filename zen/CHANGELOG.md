@@ -1,5 +1,19 @@
 # Changelog
 
+## [19.2.1-zen.1] - 2026-11-26
+
+### Changed
+
+- 跟进上游 19.2.1 的响应式终端界面，保留 Zen 的流式输出逐行定稿和 `/redraw`。
+  Adopt the upstream 19.2.1 reactive terminal UI with Zen's line-by-line scrollback and `/redraw`.
+- `archive.grepContext()` 搜索会话正文并返回命中前后的对话轮次。
+  `archive.grepContext()` finds matching messages and returns surrounding conversation turns.
+
+### Fixed
+
+- `/resume` 继续默认选中当前会话，删除确认默认选「否」。
+  `/resume` selects the current session by default and starts delete confirmation on No.
+
 ## [19.1.1-zen.1] - 2026-11-24
 
 ### Changed
