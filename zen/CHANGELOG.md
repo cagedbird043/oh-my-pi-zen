@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+## [19.2.1-zen.2] - 2026-11-27
+
+### Added
+
+- Windows x64 用户可通过 Bun 安装 Zen。
+  Windows x64 users can install Zen with Bun.
+
 ## [19.2.1-zen.1] - 2026-11-26
 
 ### Changed

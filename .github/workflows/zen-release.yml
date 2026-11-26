@@ -21,6 +21,7 @@ permissions:
 env:
    ADDON: packages/natives/native/pi_natives.linux-x64-modern.node
    ANDROID_ADDON: packages/natives/native/pi_natives.android-arm64.node
+   WINDOWS_ADDON: packages/natives/native/pi_natives.win32-x64-baseline.node
 
 jobs:
    linux-addon:
@@ -105,8 +106,38 @@ jobs:
               path: ${{ env.ANDROID_ADDON }}
               if-no-files-found: error
 
+   windows-addon:
+      runs-on: windows-2025
+      steps:
+         - uses: actions/checkout@v4
+         - name: Restore Windows addon
+           id: addon
+           uses: actions/cache@v4
+           with:
+              path: ${{ env.WINDOWS_ADDON }}
+              key: zen-addon-win32-x64-baseline-v1-${{ hashFiles('.cargo/config.toml', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**') }}
+         - name: Cache cargo dependencies
+           if: steps.addon.outputs.cache-hit != 'true'
+           uses: Swatinem/rust-cache@v2
+           with:
+              shared-key: natives-win32-x64-baseline
+         - name: Build Windows x64 addon
+           if: steps.addon.outputs.cache-hit != 'true'
+           shell: pwsh
+           env:
+              RUSTFLAGS: -C target-cpu=x86-64-v2 -C target-feature=+crt-static
+           run: |
+              cargo build --locked -p omp-natives --profile ci --target x86_64-pc-windows-msvc
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              Copy-Item -LiteralPath target/x86_64-pc-windows-msvc/ci/pi_natives.dll -Destination $env:WINDOWS_ADDON
+         - uses: actions/upload-artifact@v4
+           with:
+              name: zen-addon-win32-x64
+              path: ${{ env.WINDOWS_ADDON }}
+              if-no-files-found: error
+
    release:
-      needs: [linux-addon, android-addon]
+      needs: [linux-addon, android-addon, windows-addon]
       runs-on: ubuntu-24.04
       # ubuntu-24.04 is Linux x64; the relay leaf is compiled for bun-linux-x64-baseline.
       steps:
@@ -149,6 +180,7 @@ jobs:
               --output "$RUNNER_TEMP/zen-publish"
               --linux-addon "$ADDON"
               --android-addon "$ANDROID_ADDON"
+              --windows-addon "$WINDOWS_ADDON"
          # Exercise the packed native leaf and CLI without PipeWire/SPA or a desktop.
          - name: Linux no-PipeWire compatibility smoke
            run: bun scripts/zen/native-portability-smoke.ts "$RUNNER_TEMP/zen-publish"

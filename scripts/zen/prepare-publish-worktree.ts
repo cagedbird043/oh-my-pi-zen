@@ -28,6 +28,13 @@ import {
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const textExtension = /\.(?:[cm]?[jt]sx?|json|jsonc|md|txt|html|css|ya?ml|kdl)$/;
+const nativeFilenames = {
+	"linux-x64": "pi_natives.linux-x64-modern.node",
+	"darwin-arm64": "pi_natives.darwin-arm64.node",
+	"linux-arm64": "pi_natives.linux-arm64.node",
+	"android-arm64": "pi_natives.android-arm64.node",
+	"win32-x64": "pi_natives.win32-x64-baseline.node",
+} satisfies Record<(typeof nativeTags)[number], string>;
 interface WorkspaceRoot {
 	workspaces: { packages: string[]; catalog: Record<string, string> };
 }
@@ -124,9 +131,10 @@ async function prepare(): Promise<void> {
 	const output = argument("--output");
 	const addon = argument("--linux-addon");
 	const androidAddon = argument("--android-addon");
-	if (!version || !output || !addon || !androidAddon)
+	const windowsAddon = argument("--windows-addon");
+	if (!version || !output || !addon || !androidAddon || !windowsAddon)
 		throw new Error(
-			"Usage: bun scripts/zen/prepare-publish-worktree.ts --version X.Y.Z-zen.N --output <new-directory> --linux-addon <pipewire-addon.node> --android-addon <android-addon.node>",
+			"Usage: bun scripts/zen/prepare-publish-worktree.ts --version X.Y.Z-zen.N --output <new-directory> --linux-addon <pipewire-addon.node> --android-addon <android-addon.node> --windows-addon <win32-x64-baseline-addon.node>",
 		);
 	const upstream = (await Bun.file(path.join(repoRoot, "packages/natives/package.json")).json()).version as string;
 	if (zenVersion(upstream, version.split("-zen.")[1] ?? "") !== version)
@@ -174,26 +182,24 @@ async function prepare(): Promise<void> {
 	await fs.unlink(zenChangelog);
 	await fs.copyFile(path.join(destination, "zen/CHANGELOG.md"), zenChangelog);
 	const stagedNative = path.join(destination, "packages/natives/native");
-	await fs.copyFile(path.resolve(addon), path.join(stagedNative, "pi_natives.linux-x64-modern.node"));
-	await fs.copyFile(path.resolve(androidAddon), path.join(stagedNative, "pi_natives.android-arm64.node"));
+	await fs.copyFile(path.resolve(addon), path.join(stagedNative, nativeFilenames["linux-x64"]));
+	await fs.copyFile(path.resolve(androidAddon), path.join(stagedNative, nativeFilenames["android-arm64"]));
+	await fs.copyFile(path.resolve(windowsAddon), path.join(stagedNative, nativeFilenames["win32-x64"]));
 	const download = await fs.mkdtemp(path.join(os.tmpdir(), "zen-official-addons-"));
 	try {
-		for (const tag of ["darwin-arm64", "linux-arm64"]) {
+		for (const tag of ["darwin-arm64", "linux-arm64"] as const) {
+			const filename = nativeFilenames[tag];
 			const packed =
 				await $`npm pack ${`@oh-my-pi/pi-natives-${tag}@${upstream}`} --ignore-scripts --json --pack-destination ${download}`.quiet();
-			await $`tar -xzf ${path.join(download, packedFilename(packed.text()))} -C ${download} ${`package/pi_natives.${tag}.node`}`;
-			await fs.copyFile(
-				path.join(download, `package/pi_natives.${tag}.node`),
-				path.join(stagedNative, `pi_natives.${tag}.node`),
-			);
+			await $`tar -xzf ${path.join(download, packedFilename(packed.text()))} -C ${download} ${`package/${filename}`}`;
+			await fs.copyFile(path.join(download, "package", filename), path.join(stagedNative, filename));
 		}
 	} finally {
 		await fs.rm(download, { recursive: true, force: true });
 	}
 	await transformTree(destination, version);
 	for (const tag of nativeTags) {
-		const filename = tag === "linux-x64" ? "pi_natives.linux-x64-modern.node" : `pi_natives.${tag}.node`;
-		await $`bun scripts/stamp-native-version.ts ${path.join(stagedNative, filename)} --version ${version}`.cwd(
+		await $`bun scripts/stamp-native-version.ts ${path.join(stagedNative, nativeFilenames[tag])} --version ${version}`.cwd(
 			destination,
 		);
 	}
